@@ -1,0 +1,13 @@
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/demo
+app:
+  security:
+    otp:
+      dev-echo: true
+  bootstrap:
+    admin-password: Admin@12345
+    demo-users: true
+logging:
+  level:
+    lk.gov.ciaboc.hrms: DEBUG

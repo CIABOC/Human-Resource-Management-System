@@ -1,0 +1,13 @@
+.env
+nginx/certs/
+backend/target/
+backend/config/
+backend/data/
+frontend/node_modules/
+frontend/dist/
+*.log
+.mvn-resolve.log
+.npm-install.log
+.test-*.log
+.idea/
+.vscode/
