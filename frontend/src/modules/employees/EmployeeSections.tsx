@@ -23,21 +23,22 @@ export function OverviewSection({ view, showBank }: { view: EmployeeView; showBa
     <div className="grid grid-2">
       <Card title="Personal" accent>
         <DL items={[
-          ['Full name', e.fullName], ['Name with initials', e.nameWithInitials], ['Sinhala', e.nameSi], ['Tamil', e.nameTa], ['NIC', <span className="mono">{e.nic}</span>],
+          ['Employee ID', e.employeeNo], ['Full name', e.fullName], ['Name with initials', e.nameWithInitials], ['Sinhala', e.nameSi], ['Tamil', e.nameTa], ['NIC number', <span className="mono">{e.nic}</span>],
           ['Date of birth', fmtDate(e.dateOfBirth)], ['Gender', md.gender(e.gender)], ['Civil status', md.civil(e.civilStatus)],
         ]} />
       </Card>
       <Card title="Employment" accent>
         <DL items={[
-          ['Designation', view.designationName], ['Unit', view.orgUnitName], ['Position', view.positionTitle], ['Status', <StatusBadge status={e.status} label={md.status(e.status)} />],
+          ['Current designation', view.designationName], ['Department / Division', view.orgUnitName], ['Position', view.positionTitle], ['Grade', view.grade],
+          ['Reporting officer', view.reportingOfficerName], ['Employment status', <StatusBadge status={e.status} label={md.status(e.status)} />],
           ['Employment type', md.type(e.employmentType)], ['Category', md.cat(e.employeeCategory)], ['Service', md.svc(e.serviceCategory)],
-          ['Appointed', fmtDate(e.appointmentDate)], ['Confirmed', e.confirmationDate ? fmtDate(e.confirmationDate) : ''], ['Retirement date', fmtDate(e.retirementDate)],
+          ['Appointment date', fmtDate(e.appointmentDate)], ['Confirmed', e.confirmationDate ? fmtDate(e.confirmationDate) : ''], ['Retirement date', fmtDate(e.retirementDate)],
           ...(e.secondedFrom ? ([['Seconded from', `${e.secondedFrom}${e.secondmentEndDate ? ` until ${fmtDate(e.secondmentEndDate)}` : ''}`]] as [string, string][]) : []),
           ...(e.separationDate ? ([['Separated', `${fmtDate(e.separationDate)} · ${e.separationReason ?? ''}`]] as [string, string][]) : []),
         ]} />
       </Card>
       <Card title="Contact">
-        <DL items={[['E-mail', e.email], ['Mobile', e.mobile], ['Phone', e.phone], ['Permanent address', e.permanentAddress], ['Residential address', e.residentialAddress]]} />
+        <DL items={[['Email address', e.email], ['Mobile number', e.mobile], ['Phone', e.phone], ['Permanent address', e.permanentAddress], ['Residential address', e.residentialAddress]]} />
       </Card>
       {showBank && (
         <Card title="Bank">
@@ -252,8 +253,10 @@ export function ChangeRequestsSection({ employeeId }: { employeeId: number }) {
     <Card title="Profile change requests" pad={false}>
       <DataTable<ProfileChangeRequest> rows={data} loading={loading} empty="No change requests." columns={[
         { key: 'createdAt', header: 'Requested', render: (c) => fmtDateTime(c.createdAt) },
+        { key: 'requestType', header: 'Request', render: (c) => c.requestType.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (v) => v.toUpperCase()) },
         { key: 'source', header: 'Source', render: (c) => (c.source === 'SELF' ? 'Self-service' : 'HR (maker-checker)') },
-        { key: 'changes', header: 'Changes', render: (c) => {
+        { key: 'changes', header: 'Details', render: (c) => {
+          if (c.requestDetails) return <div>{c.requestDetails}<div className="faint">{c.reason}</div></div>;
           try {
             const ch = JSON.parse(c.changes) as Record<string, { old: unknown; new: unknown }>;
             return <div>{Object.entries(ch).map(([k, v]) => <div key={k}><strong>{k}</strong>: <span className="faint">{String(v.old ?? '—')}</span> → {String(v.new ?? '—')}</div>)}</div>;

@@ -28,6 +28,6 @@ interface ServiceEventRepository extends JpaRepository<EmployeeDetails.ServiceEv
 
 interface ProfileChangeRequestRepository extends JpaRepository<EmployeeDetails.ProfileChangeRequest, Long> {
     List<EmployeeDetails.ProfileChangeRequest> findByEmployeeIdOrderByIdDesc(Long employeeId);
-
     boolean existsByEmployeeIdAndStatusIn(Long employeeId, List<String> statuses);
+    boolean existsByEmployeeIdAndRequestTypeAndStatusIn(Long employeeId, String requestType, List<String> statuses);
 }

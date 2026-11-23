@@ -43,6 +43,22 @@ public class BootstrapRunner implements ApplicationRunner {
                         List.of("SYSTEM_ADMIN"));
                 log.info("Initial administrator '{}' created. Change the password after first sign-in.", b.adminUsername());
             }
+        } else if (b.resetExistingAdminPassword()) {
+            if (b.adminPassword() == null || b.adminPassword().isBlank()) {
+                log.warn("Existing administrator password reset was enabled, but BOOTSTRAP_ADMIN_PASSWORD is not set.");
+            } else {
+                var existingAdmin = users.findByUsernameIgnoreCase(b.adminUsername());
+                if (existingAdmin.isEmpty()) {
+                    log.warn("No existing administrator '{}' was found to reset.", b.adminUsername());
+                } else {
+                    AppUser admin = existingAdmin.get();
+                    admin.setPasswordHash(encoder.encode(b.adminPassword()));
+                    admin.setPasswordChangedAt(Instant.now());
+                    users.save(admin);
+                    log.warn("Password for configured administrator '{}' was reset from bootstrap configuration.",
+                            b.adminUsername());
+                }
+            }
         }
         if (b.demoUsers()) createDemoUsers();
     }

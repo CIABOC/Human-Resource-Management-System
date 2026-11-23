@@ -52,19 +52,13 @@ public abstract class IntegrationTestBase {
     @Autowired
     protected ObjectMapper json;
 
-    /** Performs password + OTP sign-in (OTP is echoed in the dev profile) and returns the bearer token. */
+    /** Performs password sign-in and returns the bearer token. */
     protected String login(String username, String password) throws Exception {
         MvcResult r = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("username", username, "password", password))))
                 .andReturn();
         if (r.getResponse().getStatus() != 200) throw new AssertionError("Login failed: " + r.getResponse().getContentAsString());
-        JsonNode ch = json.readTree(r.getResponse().getContentAsString());
-        MvcResult v = mvc.perform(post("/api/auth/verify-otp").contentType(MediaType.APPLICATION_JSON)
-                        .content(json.writeValueAsString(Map.of("challengeId", ch.get("challengeId").asText(),
-                                "code", ch.get("devOtp").asText()))))
-                .andReturn();
-        if (v.getResponse().getStatus() != 200) throw new AssertionError("OTP failed: " + v.getResponse().getContentAsString());
-        return "Bearer " + json.readTree(v.getResponse().getContentAsString()).get("accessToken").asText();
+        return "Bearer " + json.readTree(r.getResponse().getContentAsString()).get("accessToken").asText();
     }
 
     protected JsonNode getJson(String token, String url) throws Exception {

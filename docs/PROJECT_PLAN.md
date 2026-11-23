@@ -70,7 +70,7 @@ Sinhala and Tamil texts (navigation, templates, master data) should be reviewed 
 ## 5. Before go-live (Concept Note §9, SRS C-07)
 
 - Connect the CIABOC SSO/IAM (INT-01), approved SMTP and SMS relays, and attendance devices (INT-04).
-- Install the issued TLS certificate; set `JWT_SECRET`, database and admin secrets; keep `OTP_DEV_ECHO=false` and the
+- Install the issued TLS certificate; set `JWT_SECRET`, database and admin secrets; keep the
   `prod` profile.
 - Run the DPIA, threat model, independent penetration test and performance tests at the confirmed user numbers.
 - Encrypt the database and file volumes at rest; set up backups, test restores and the DR plan with agreed RTO/RPO.

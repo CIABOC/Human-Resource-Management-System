@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Bell, KeyRound, LogOut, Menu, UserRound } from 'lucide-react';
+import { Bell, KeyRound, LogOut, Menu, Settings, UserRound } from 'lucide-react';
 import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/api/client';
 import { modules } from '@/modules/registry';
@@ -134,6 +134,7 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
               <button role="menuitem" onClick={() => { setMenu(false); nav('/me'); }}><UserRound size={16} /> {t('profile.title', 'My profile')}</button>
             )}
             <button role="menuitem" onClick={() => { setMenu(false); nav('/account/password'); }}><KeyRound size={16} /> Change password</button>
+            <button role="menuitem" onClick={() => { setMenu(false); nav('/account/settings'); }}><Settings size={16} /> Account settings</button>
             <button role="menuitem" onClick={() => void logout()}><LogOut size={16} /> {t('auth.signOut', 'Sign out')}</button>
           </div>
         )}

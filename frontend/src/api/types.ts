@@ -15,6 +15,7 @@ export interface Me {
   employeeId: number | null;
   dataScope: 'ALL' | 'DIVISION' | 'SELF';
   language: 'en' | 'si' | 'ta';
+  preferredTheme: 'LIGHT' | 'DARK';
   roles: string[];
   permissions: string[];
   sessionIdleMinutes: number;

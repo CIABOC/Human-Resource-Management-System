@@ -2,6 +2,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import { api, setSessionExpiredHandler, tokens } from '@/api/client';
 import type { Me } from '@/api/types';
 import i18n from '@/i18n';
+import { applyTheme } from '@/theme';
 
 interface AuthState {
   me: Me | null;
@@ -26,7 +27,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loadMe = useCallback(async () => {
     const { data } = await api.get<Me>('/auth/me');
-    setMe(data);
+    const preferredTheme = applyTheme(data.preferredTheme);
+    setMe({ ...data, preferredTheme });
     if (data.language && data.language !== i18n.language) await i18n.changeLanguage(data.language);
   }, []);
 

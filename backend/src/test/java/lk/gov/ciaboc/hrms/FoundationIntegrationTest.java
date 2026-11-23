@@ -1,12 +1,16 @@
 package lk.gov.ciaboc.hrms;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import lk.gov.ciaboc.hrms.config.BootstrapRunner;
+import lk.gov.ciaboc.hrms.security.AppUserRepository;
 import lk.gov.ciaboc.hrms.support.IntegrationTestBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -20,6 +24,23 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 class FoundationIntegrationTest extends IntegrationTestBase {
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    AppUserRepository users;
+    @Autowired
+    PasswordEncoder passwordEncoder;
+    @Autowired
+    BootstrapRunner bootstrapRunner;
+
+    @Test
+    void configuredAdminPasswordReplacesThePasswordOfAnExistingAdmin() throws Exception {
+        var admin = users.findByUsernameIgnoreCase("admin").orElseThrow();
+        admin.setPasswordHash(passwordEncoder.encode("PreviousPassword123"));
+        users.save(admin);
+
+        bootstrapRunner.run(new DefaultApplicationArguments(new String[0]));
+
+        assertThat(login("admin", "Admin1234")).isNotBlank();
+    }
 
     @Test
     void unauthenticatedRequestsAreRejected() throws Exception {
@@ -28,26 +49,57 @@ class FoundationIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    void wrongPasswordAndWrongOtpAreRejected() throws Exception {
+    void wrongPasswordIsRejected() throws Exception {
         MvcResult r = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(Map.of("username", "employee", "password", "nope")))).andReturn();
         expectStatus(r, 401);
-        MvcResult ok = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsString(Map.of("username", "employee", "password", "Demo@12345")))).andReturn();
-        String challenge = body(ok).get("challengeId").asText();
-        MvcResult bad = mvc.perform(post("/api/auth/verify-otp").contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsString(Map.of("challengeId", challenge, "code", "000000x")))).andReturn();
-        expectStatus(bad, 401);
+    }
+
+    @Test
+    void accountPreferencesSessionsAndLogoutAllAreAvailableToTheCurrentUser() throws Exception {
+        String employee = login("employee", "Demo@12345");
+        MvcResult update = putJson(employee, "/api/account/preferences", Map.of(
+                "preferredLanguage", "si", "preferredTheme", "DARK", "notifySystem", false,
+                "notifyEmail", true, "notifySms", false));
+        expectStatus(update, 200);
+        JsonNode preferences = body(update);
+        assertThat(preferences.get("preferredLanguage").asText()).isEqualTo("si");
+        assertThat(preferences.get("preferredTheme").asText()).isEqualTo("DARK");
+        assertThat(preferences.get("notifySystem").asBoolean()).isFalse();
+
+        assertThat(getJson(employee, "/api/account/sessions").size()).isGreaterThan(0);
+        assertThat(getJson(employee, "/api/account/login-history").get(0).get("action").asText()).isEqualTo("LOGIN");
+        expectStatus(postJson(employee, "/api/account/sessions/logout-all", Map.of()), 200);
+        expectStatus(mvc.perform(get("/api/auth/me").header("Authorization", employee)).andReturn(), 401);
+    }
+
+    @Test
+    void employeeQualificationRequestsAreApprovalRoutedAndTracked() throws Exception {
+        String employee = login("employee", "Demo@12345");
+        MvcResult submitted = postJson(employee, "/api/employees/me/hr-requests", Map.of(
+                "requestType", "QUALIFICATION_UPDATE",
+                "details", "Add BSc in Information Technology, 2024.",
+                "reason", "Qualification completed"));
+        expectStatus(submitted, 200);
+        JsonNode request = body(submitted);
+        assertThat(request.get("requestType").asText()).isEqualTo("QUALIFICATION_UPDATE");
+        assertThat(request.get("status").asText()).isEqualTo("PENDING");
+
+        String hr = login("hr", "Demo@12345");
+        long instanceId = request.get("workflowInstanceId").asLong();
+        expectStatus(postJson(hr, "/api/workflow/instances/" + instanceId + "/act",
+                Map.of("decision", "APPROVE", "comment", "Reviewed")), 200);
+        long employeeId = getJson(employee, "/api/employees/me").get("employee").get("id").asLong();
+        JsonNode requests = getJson(employee, "/api/employees/" + employeeId + "/change-requests");
+        assertThat(requests.get(0).get("status").asText()).isEqualTo("APPROVED");
+        assertThat(requests.get(0).get("requestDetails").asText()).contains("BSc in Information Technology");
     }
 
     @Test
     void refreshTokenRotates() throws Exception {
         MvcResult ok = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(Map.of("username", "auditor", "password", "Demo@12345")))).andReturn();
-        JsonNode ch = body(ok);
-        MvcResult v = mvc.perform(post("/api/auth/verify-otp").contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsString(Map.of("challengeId", ch.get("challengeId").asText(), "code", ch.get("devOtp").asText())))).andReturn();
-        String refresh = body(v).get("refreshToken").asText();
+        String refresh = body(ok).get("refreshToken").asText();
         MvcResult r1 = mvc.perform(post("/api/auth/refresh").contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(Map.of("refreshToken", refresh)))).andReturn();
         expectStatus(r1, 200);
@@ -214,7 +266,7 @@ class FoundationIntegrationTest extends IntegrationTestBase {
         String dg = login("dg", "Demo@12345");
         JsonNode d = getJson(dg, "/api/dashboard");
         assertThat(d.get("tiles").size()).isGreaterThan(2);
-        String admin = login("admin", "Admin@12345");
+        String admin = login("admin", "Admin1234");
         JsonNode statuses = getJson(admin, "/api/master-data/EMPLOYEE_STATUS");
         long activeId = 0;
         for (JsonNode s : statuses) if (s.get("code").asText().equals("ACTIVE")) activeId = s.get("id").asLong();

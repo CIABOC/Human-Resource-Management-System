@@ -2,11 +2,9 @@ spring:
   flyway:
     locations: classpath:db/migration,classpath:db/demo
 app:
-  security:
-    otp:
-      dev-echo: true
   bootstrap:
-    admin-password: Admin@12345
+    admin-password: Admin1234
+    reset-existing-admin-password: true
     demo-users: true
 logging:
   level:

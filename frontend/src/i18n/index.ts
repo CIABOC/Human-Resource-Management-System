@@ -43,5 +43,10 @@ i18n.on('languageChanged', (lng) => {
   }
 });
 document.documentElement.lang = i18n.language;
+try {
+  document.documentElement.dataset.theme = sessionStorage.getItem('hrms.theme')?.toLowerCase() ?? 'light';
+} catch {
+  document.documentElement.dataset.theme = 'light';
+}
 
 export default i18n;

@@ -29,7 +29,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
             jwtService.validate(header.substring(7))
-                    .flatMap(users::findByUsernameIgnoreCase)
+                    .filter(token -> token.tokenVersion() >= 0)
+                    .flatMap(token -> users.findByUsernameIgnoreCase(token.username())
+                            .filter(u -> u.getTokenVersion() == token.tokenVersion()))
                     .filter(AppUser::isActive)
                     .ifPresent(u -> {
                         UserPrincipal p = new UserPrincipal(u);

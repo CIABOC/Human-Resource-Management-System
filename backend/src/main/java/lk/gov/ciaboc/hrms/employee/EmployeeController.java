@@ -161,10 +161,19 @@ public class EmployeeController {
     public record SelfChangeRequest(Map<String, String> changes, String reason) {
     }
 
+    public record SelfHrRequest(String requestType, String details, String reason) {
+    }
+
     @PostMapping("/me/change-requests")
     @PreAuthorize("hasAuthority('SELF_SERVICE')")
     public EmployeeDetails.ProfileChangeRequest requestChange(@RequestBody SelfChangeRequest r) {
         return service.requestSelfChange(r.changes(), r.reason());
+    }
+
+    @PostMapping("/me/hr-requests")
+    @PreAuthorize("hasAuthority('SELF_SERVICE')")
+    public EmployeeDetails.ProfileChangeRequest requestHrAction(@RequestBody SelfHrRequest r) {
+        return service.requestSelfHrAction(r.requestType(), r.details(), r.reason());
     }
 
     @GetMapping("/{id}/change-requests")

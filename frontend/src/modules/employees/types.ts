@@ -9,7 +9,7 @@ export interface Employee {
 }
 
 export interface EmployeeView {
-  employee: Employee; designationName?: string; orgUnitName?: string; positionTitle?: string; hasUserAccount: boolean;
+  employee: Employee; designationName?: string; orgUnitName?: string; positionTitle?: string; grade?: string; reportingOfficerName?: string; hasUserAccount: boolean;
 }
 
 export interface EmployeeListItem {
@@ -32,4 +32,7 @@ export interface EmployeeDocument {
   id: number; documentType: string; title: string; documentDate?: string; classification: string; fileName?: string; remarks?: string; createdAt: string; createdBy: string;
 }
 
-export interface ProfileChangeRequest { id: number; changes: string; reason?: string; source: string; status: string; workflowInstanceId?: number; createdAt: string }
+export interface ProfileChangeRequest {
+  id: number; changes: string; requestType: string; requestDetails?: string; reason?: string; source: string;
+  status: string; workflowInstanceId?: number; createdAt: string;
+}

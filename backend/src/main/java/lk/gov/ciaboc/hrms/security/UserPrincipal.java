@@ -18,6 +18,7 @@ public class UserPrincipal implements UserDetails {
     private final Long employeeId;
     private final DataScope dataScope;
     private final String language;
+    private final String preferredTheme;
     private final Set<String> roles;
     private final Set<String> permissions;
     private final Set<GrantedAuthority> authorities;
@@ -29,6 +30,7 @@ public class UserPrincipal implements UserDetails {
         this.employeeId = u.getEmployeeId();
         this.dataScope = u.getDataScope();
         this.language = u.getPreferredLanguage();
+        this.preferredTheme = u.getPreferredTheme();
         this.roles = new HashSet<>();
         this.permissions = new HashSet<>();
         u.getRoles().stream().filter(Role::isActive).forEach(r -> {
