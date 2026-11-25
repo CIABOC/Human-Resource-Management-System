@@ -98,7 +98,7 @@ public class LeaveService implements WorkflowHandler {
 
     /** Approved leave for consumers such as attendance. */
     public record LeaveDay(Long applicationId, Long employeeId, LocalDate startDate, LocalDate endDate, boolean halfDay,
-                           String leaveTypeCode, boolean paid) {
+                           String leaveTypeCode, boolean paid, boolean shortLeave) {
         public boolean covers(LocalDate d) {
             return !d.isBefore(startDate) && !d.isAfter(endDate);
         }
@@ -139,6 +139,7 @@ public class LeaveService implements WorkflowHandler {
         WorkflowInstance wi = workflow.start(PROCESS, ENTITY, a.getId(), title(a, c.type(), me), "/leave/applications/" + a.getId(), emp);
         a.setWorkflowInstanceId(wi.getId());
         audit.log(AuditAction.CREATE, ENTITY, a.getId(), "Leave applied: " + describe(a, c.type()), null, Json.write(r));
+        events.publishEvent(new LeaveChangedEvent(a.getEmployeeId(), a.getStartDate(), a.getEndDate()));
         return view(a, c.type(), me);
     }
 
@@ -307,11 +308,25 @@ public class LeaveService implements WorkflowHandler {
     /** Approved (not cancelled) leave overlapping the range. */
     @Transactional(readOnly = true)
     public List<LeaveDay> approvedLeave(LocalDate from, LocalDate to) {
+        return leaveDays(from, to, EnumSet.of(LeaveApplication.Status.APPROVED));
+    }
+
+    /**
+     * Applications still awaiting a decision (pending or returned for correction) overlapping the range. Attendance holds
+     * No-Pay for days they cover until they are decided (REQ 13.5).
+     */
+    @Transactional(readOnly = true)
+    public List<LeaveDay> pendingLeave(LocalDate from, LocalDate to) {
+        return leaveDays(from, to, EnumSet.of(LeaveApplication.Status.PENDING, LeaveApplication.Status.RETURNED));
+    }
+
+    private List<LeaveDay> leaveDays(LocalDate from, LocalDate to, Set<LeaveApplication.Status> statuses) {
         Map<Long, LeaveType> t = typeMap();
-        return apps.inRange(from, to, EnumSet.of(LeaveApplication.Status.APPROVED)).stream()
+        return apps.inRange(from, to, statuses).stream()
                 .map(a -> {
                     LeaveType lt = t.get(a.getLeaveTypeId());
-                    return new LeaveDay(a.getId(), a.getEmployeeId(), a.getStartDate(), a.getEndDate(), a.isHalfDay(), lt.getCode(), lt.isPaid());
+                    return new LeaveDay(a.getId(), a.getEmployeeId(), a.getStartDate(), a.getEndDate(), a.isHalfDay(), lt.getCode(),
+                            lt.isPaid(), lt.isShortLeave());
                 }).toList();
     }
 
@@ -322,7 +337,7 @@ public class LeaveService implements WorkflowHandler {
         Set<LocalDate> hol = holidays.holidaysBetween(ms, me);
         Map<Long, BigDecimal> out = new HashMap<>();
         for (LeaveDay d : approvedLeave(ms, me)) {
-            if (d.paid()) continue;
+            if (d.paid() || d.shortLeave()) continue;
             LocalDate s = d.startDate().isBefore(ms) ? ms : d.startDate();
             LocalDate e = d.endDate().isAfter(me) ? me : d.endDate();
             BigDecimal days = d.halfDay() ? (WorkingDays.isWorkingDay(s, hol) ? HALF : BigDecimal.ZERO)
@@ -357,6 +372,7 @@ public class LeaveService implements WorkflowHandler {
         LeaveApplication a = app(wi.getEntityId());
         balances.releasePending(a, type(a.getLeaveTypeId()));
         a.setStatus(LeaveApplication.Status.REJECTED);
+        events.publishEvent(new LeaveChangedEvent(a.getEmployeeId(), a.getStartDate(), a.getEndDate()));
         a.setDecidedAt(Instant.now());
     }
 
@@ -375,6 +391,7 @@ public class LeaveService implements WorkflowHandler {
         LeaveApplication a = app(wi.getEntityId());
         balances.releasePending(a, type(a.getLeaveTypeId()));
         a.setStatus(LeaveApplication.Status.WITHDRAWN);
+        events.publishEvent(new LeaveChangedEvent(a.getEmployeeId(), a.getStartDate(), a.getEndDate()));
         a.setDecidedAt(Instant.now());
     }
 
@@ -451,6 +468,18 @@ public class LeaveService implements WorkflowHandler {
         int wd = WorkingDays.count(s, e, holidays.holidaysBetween(s, e));
         if (wd == 0) throw ApiException.rule("NO_WORKING_DAYS", "The selected period has no working days (weekends and holidays are not charged)");
         BigDecimal days = half ? HALF : BigDecimal.valueOf(wd);
+        if (t.isShortLeave()) {
+            // Short leave covers part of a single day and is not charged in days (REQ 13.3).
+            if (!s.equals(e)) throw ApiException.badRequest(t.getName() + " covers part of a single day: start and end dates must be the same");
+            int max = settings.getInt("leave.short-leave.max-per-month", 2);
+            LocalDate ms = s.withDayOfMonth(1), me = s.withDayOfMonth(s.lengthOfMonth());
+            long used = apps.overlapping(employeeId, ms, me, HOLDING, excludeId == null ? -1L : excludeId).stream()
+                    .filter(o -> o.getLeaveTypeId().equals(t.getId())).count();
+            if (max >= 0 && used >= max)
+                throw ApiException.rule("SHORT_LEAVE_LIMIT", "At most " + max + " " + t.getName().toLowerCase() + " application(s) are allowed per month ("
+                        + used + " already applied for in " + s.getMonth().getDisplayName(java.time.format.TextStyle.FULL, Locale.ENGLISH) + ")");
+            days = BigDecimal.ZERO;
+        }
         LocalDate today = LocalDate.now();
         if (s.isBefore(today)) {
             if (!t.isAllowBackdated())

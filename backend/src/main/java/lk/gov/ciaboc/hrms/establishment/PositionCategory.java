@@ -36,4 +36,8 @@ public class PositionCategory extends BaseEntity {
 
     @Column(length = 500)
     private String description;
+
+    /** Parent category for nesting (REQ 7.1); null = top level. */
+    @Column(name = "parent_id")
+    private Long parentId;
 }

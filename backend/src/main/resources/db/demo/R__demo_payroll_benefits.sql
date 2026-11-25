@@ -55,8 +55,10 @@ WHERE NOT EXISTS (SELECT 1 FROM pay_employee_allowance a WHERE a.employee_id = e
 
 -- Loans brought by seconded / transferred-in employees.
 INSERT INTO pay_employee_loan (version, created_at, created_by, employee_id, loan_type, lender, previous_workplace, reference_no,
-                               original_amount, outstanding_balance, monthly_instalment, start_date, status, remarks)
-SELECT 0, now(), 'demo', e.id, v.lt, v.lender, v.prev, v.ref, v.orig, v.outs, v.inst, DATE '2025-06-01', 'ACTIVE', 'Demo loan'
+                               original_amount, outstanding_balance, monthly_instalment, start_date, status, remarks,
+                               loan_name, first_deduction_month, remittance_target)
+SELECT 0, now(), 'demo', e.id, v.lt, v.lender, v.prev, v.ref, v.orig, v.outs, v.inst, DATE '2025-06-01', 'ACTIVE', 'Demo loan',
+       v.lender, '2025-06', v.lender
 FROM (VALUES ('CIA-0014', 'PROPERTY', 'State Mortgage and Investment Bank', 'Ministry of Technology', 'DEMO-L-001', 500000.00, 320000.00, 10000.00),
              ('CIA-0008', 'DISTRESS', 'Public Service Mutual Fund', 'Department of Police', 'DEMO-L-002', 100000.00, 25500.00, 5000.00),
              ('CIA-0013', 'FESTIVAL', 'Festival advance (previous workplace)', 'Attorney General''s Department', 'DEMO-L-003', 10000.00, 2000.00, 5000.00))

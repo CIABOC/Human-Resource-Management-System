@@ -57,7 +57,7 @@ class ExtendedIntegrationTest extends IntegrationTestBase {
         String hr = login("hr", PW);
         String hr2 = login("hr2", PW);
         String dg = login("dg", PW);
-        long emp = newEmployee(hr, "INV-OPS", "IO");
+        long emp = newEmployee(hr, "INV-HO", "IO");
         long adg = designation("ADG");
 
         // Cadre preview (warn-only by default).
@@ -77,7 +77,7 @@ class ExtendedIntegrationTest extends IntegrationTestBase {
         long wi = body(created).get("workflowInstanceId").asLong();
         // Duplicate open request refused.
         expectStatus(postJson(hr, "/api/extended/movements", Map.of("requestType", "TRANSFER", "employeeId", emp,
-                "targetOrgUnitCode", "INV-INT", "effectiveDate", LocalDate.now().toString(), "reason", "x")), 422);
+                "targetOrgUnitCode", "INTEL", "effectiveDate", LocalDate.now().toString(), "reason", "x")), 422);
 
         // The requester cannot review it; hr2 (HR review) then the DG approve.
         expectStatus(postJson(hr, "/api/workflow/instances/" + wi + "/act", Map.of("decision", "APPROVE")), 422);
@@ -101,7 +101,7 @@ class ExtendedIntegrationTest extends IntegrationTestBase {
     @Test
     void separationClearanceAndCompletionSetsStatusAndRemovesAccess() throws Exception {
         String hr = login("hr", PW);
-        long emp = newEmployee(hr, "INV-OPS", "IO");
+        long emp = newEmployee(hr, "INV-HO", "IO");
         String username = "ext.leaver" + emp;
         jdbc.update("INSERT INTO app_user (version, created_at, created_by, username, password_hash, full_name, employee_id, active, data_scope) " +
                 "SELECT 0, now(), 'test', ?, password_hash, 'Leaver', ?, TRUE, 'SELF' FROM app_user WHERE username = 'employee'", username, emp);

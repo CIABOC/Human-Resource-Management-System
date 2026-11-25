@@ -27,7 +27,8 @@ public class LeaveConfigService implements MasterDataUsageChecker {
     public record LeaveTypeRequest(String code, String name, String nameSi, String nameTa, String description, Boolean paid,
                                    Boolean balanceTracked, Boolean requiresReason, Boolean requiresDocument,
                                    Integer documentAfterDays, Integer minNoticeDays, Integer maxConsecutiveDays,
-                                   Boolean allowBackdated, Boolean halfDayAllowed, Integer sortOrder, Boolean active) {
+                                   Boolean allowBackdated, Boolean halfDayAllowed, Integer sortOrder, Boolean active,
+                                   Boolean shortLeave) {
     }
 
     public record EntitlementRequest(Long leaveTypeId, String employeeCategory, BigDecimal daysPerYear, LocalDate effectiveFrom,
@@ -86,6 +87,9 @@ public class LeaveConfigService implements MasterDataUsageChecker {
         t.setMaxConsecutiveDays(r.maxConsecutiveDays());
         t.setAllowBackdated(Boolean.TRUE.equals(r.allowBackdated()));
         t.setHalfDayAllowed(Boolean.TRUE.equals(r.halfDayAllowed()));
+        t.setShortLeave(Boolean.TRUE.equals(r.shortLeave()));
+        if (t.isShortLeave() && (t.isBalanceTracked() || t.isHalfDayAllowed()))
+            throw ApiException.badRequest("Short leave cannot use a balance or half days (it covers part of one day)");
         t.setSortOrder(r.sortOrder() == null ? 0 : r.sortOrder());
         t.setActive(r.active() == null || r.active());
     }

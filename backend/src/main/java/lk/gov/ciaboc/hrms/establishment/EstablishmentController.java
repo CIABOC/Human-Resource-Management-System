@@ -20,6 +20,7 @@ public class EstablishmentController {
     private final EstablishmentService service;
     private final DesignationRepository designations;
     private final PositionRepository positions;
+    private final lk.gov.ciaboc.hrms.files.FileStorageService files;
 
     @GetMapping("/org-units")
     public List<OrgUnit> orgUnits(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf) {
@@ -58,6 +59,12 @@ public class EstablishmentController {
         return service.cadreSummary(asOf, orgUnitCode);
     }
 
+    @GetMapping("/cadre/reconciliation")
+    @PreAuthorize("hasAuthority('EST_VIEW')")
+    public EstablishmentService.Reconciliation reconciliation(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf) {
+        return service.reconciliation(asOf);
+    }
+
     @GetMapping("/cadre/history")
     @PreAuthorize("hasAuthority('EST_VIEW')")
     public List<CadreAllocation> cadreHistory(@RequestParam Long designationId, @RequestParam String orgUnitCode) {
@@ -94,5 +101,38 @@ public class EstablishmentController {
     @PreAuthorize("hasAuthority('EST_MANAGE')")
     public EstablishmentChange revise(@PathVariable Long id, @RequestBody EstablishmentService.ChangeRequest r) {
         return service.revise(id, r);
+    }
+
+    /** Validates a change and returns its summary and impact (REQ 6.5 impact preview) without saving it. */
+    @PostMapping("/changes/preview")
+    @PreAuthorize("hasAuthority('EST_MANAGE')")
+    public java.util.Map<String, Object> preview(@RequestBody EstablishmentService.ChangeRequest r) {
+        return service.preview(r);
+    }
+
+    @PostMapping("/changes/{id}/submit")
+    @PreAuthorize("hasAuthority('EST_MANAGE')")
+    public EstablishmentChange submitDraft(@PathVariable Long id) {
+        return service.submitDraft(id);
+    }
+
+    @PostMapping("/changes/{id}/discard")
+    @PreAuthorize("hasAuthority('EST_MANAGE')")
+    public EstablishmentChange discard(@PathVariable Long id) {
+        return service.discardDraft(id);
+    }
+
+    @PostMapping(value = "/changes/{id}/attachment", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAuthority('EST_MANAGE')")
+    public EstablishmentChange attach(@PathVariable Long id, @RequestPart("file") org.springframework.web.multipart.MultipartFile file) {
+        return service.attach(id, files.store(file, "ESTABLISHMENT").getId());
+    }
+
+    @GetMapping("/changes/{id}/attachment")
+    @PreAuthorize("hasAuthority('EST_VIEW')")
+    public org.springframework.http.ResponseEntity<org.springframework.core.io.Resource> attachment(@PathVariable Long id) {
+        EstablishmentChange c = service.change(id);
+        if (c.getAttachmentFileId() == null) throw ApiException.notFound("Attachment for change", id);
+        return files.download(c.getAttachmentFileId());
     }
 }

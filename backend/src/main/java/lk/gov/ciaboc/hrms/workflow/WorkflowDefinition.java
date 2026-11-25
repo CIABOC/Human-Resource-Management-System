@@ -1,5 +1,6 @@
 package lk.gov.ciaboc.hrms.workflow;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lk.gov.ciaboc.hrms.common.BaseEntity;
 import lombok.Getter;
@@ -26,7 +27,17 @@ public class WorkflowDefinition extends BaseEntity {
     @Column(nullable = false)
     private boolean active = true;
 
+    /**
+     * Legacy single-chain stages as seeded by module migrations. They are imported as a new published version whenever
+     * they change (see {@link WorkflowVersionService#syncLegacyStages}); live routing always uses {@link WorkflowVersion}.
+     */
+    @JsonIgnore
     @OneToMany(mappedBy = "definition", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @OrderBy("stageOrder ASC")
     private List<WorkflowStage> stages = new ArrayList<>();
+
+    /** Fingerprint of the legacy stage rows last imported. */
+    @JsonIgnore
+    @Column(name = "legacy_fingerprint", length = 64)
+    private String legacyFingerprint;
 }

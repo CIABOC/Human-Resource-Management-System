@@ -38,4 +38,22 @@ public class Designation extends BaseEntity {
 
     @Column(nullable = false)
     private boolean active = true;
+
+    /** Level in the proposed structure (1 = Additional DG ... 13 = Office Assistant; 0 = statutory DG). */
+    private Integer level;
+
+    /** Salary scale code (REQ 14.2); links to the payroll salary scales. */
+    @Column(name = "salary_code", length = 40)
+    private String salaryCode;
+
+    /** Dying cadre: no fresh recruitment, no increase; posts lapse as holders leave (REQ 6.10). */
+    @Column(name = "dying_cadre", nullable = false)
+    private boolean dyingCadre;
+
+    /** Statutory post (e.g. Director General) with its legal basis (spec 2.4, REQ 10.1). */
+    @Column(nullable = false)
+    private boolean statutory;
+
+    @Column(name = "legal_basis", length = 1000)
+    private String legalBasis;
 }

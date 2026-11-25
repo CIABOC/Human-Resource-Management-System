@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.gov.ciaboc.hrms.audit.AuditAction;
 import lk.gov.ciaboc.hrms.audit.AuditService;
 import lk.gov.ciaboc.hrms.common.ApiException;
+import lk.gov.ciaboc.hrms.common.contracts.EstablishmentEvents;
+import lk.gov.ciaboc.hrms.employee.EmployeeAssignment;
 import lk.gov.ciaboc.hrms.employee.EmployeeAssignmentRepository;
 import lk.gov.ciaboc.hrms.masterdata.MasterDataCategory;
 import lk.gov.ciaboc.hrms.masterdata.MasterDataService;
@@ -40,15 +42,21 @@ public class EstablishmentService implements WorkflowHandler {
     private final MasterDataService masterData;
     private final AuditService audit;
     private final WorkflowService workflow;
+    private final org.springframework.context.ApplicationEventPublisher events;
+    private final lk.gov.ciaboc.hrms.employee.EmployeeRepository employees;
+    private final PositionCategoryRepository categoryRepo;
+    private final CategoryAssignmentRepository categoryAssignments;
+    private final CadreControlTotalRepository controlTotals;
 
     // ===================================================================== payloads
 
     public record OrgUnitPayload(String code, String name, String nameSi, String nameTa, OrgUnit.UnitType unitType,
-                                 String parentCode, Integer sortOrder) {
+                                 String parentCode, Integer sortOrder, String location, String headTitle) {
     }
 
     public record DesignationPayload(String code, String name, String nameSi, String nameTa, String grade,
-                                     String serviceCategory, String description) {
+                                     String serviceCategory, String description, Integer level, String salaryCode,
+                                     Boolean dyingCadre, Boolean statutory, String legalBasis) {
     }
 
     public record PositionPayload(String code, String title, Long designationId, String orgUnitCode,
@@ -58,8 +66,25 @@ public class EstablishmentService implements WorkflowHandler {
     public record CadrePayload(Long designationId, String orgUnitCode, Integer approvedQty) {
     }
 
+    /**
+     * A proposed establishment change. For cadre changes (CCR, REQ 6.2) also the approving authority, reference number
+     * (circular or Commission decision) and, when reducing below filled + acting posts, an authorised exception reason.
+     * {@code draft = true} saves without submitting (REQ 6.3 Draft state).
+     */
     public record ChangeRequest(EstablishmentChange.ChangeType changeType, String targetRef, Map<String, Object> payload,
-                                LocalDate effectiveDate, String reason) {
+                                LocalDate effectiveDate, String reason, String approvingAuthority, String referenceNo,
+                                String exceptionReason, Boolean draft) {
+        public ChangeRequest(EstablishmentChange.ChangeType changeType, String targetRef, Map<String, Object> payload,
+                             LocalDate effectiveDate, String reason) {
+            this(changeType, targetRef, payload, effectiveDate, reason, null, null, null, false);
+        }
+    }
+
+    /** Impact of a cadre change on posts (REQ 6.4, 6.5), shown before submission. */
+    public record CadreImpact(Long designationId, String designationName, String orgUnitCode, int currentApproved, int proposed,
+                              long filled, long acting, int minimumAllowed, boolean belowFilled, boolean dyingCadre,
+                              int postsToCreate, List<String> newPositionCodes, int postsToFreeze, int postsToBeAbolished,
+                              String blockedReason) {
     }
 
     // ===================================================================== queries
@@ -109,26 +134,42 @@ public class EstablishmentService implements WorkflowHandler {
         return out;
     }
 
+    /**
+     * One unit on the organization chart (REQ 7.6): head post and holder, own cadre and staff, plus roll-up totals of
+     * the unit and all its sub-units. {@code headcount} and {@code approvedCadre} are the unit's own figures.
+     */
     public record OrgNode(String code, String name, String nameSi, String nameTa, String unitType, String parentCode,
-                          long headcount, int approvedCadre, List<PositionNode> positions, List<OrgNode> children) {
+                          String location, String headTitle, String headPositionCode, Long headEmployeeId,
+                          String headEmployeeName, boolean headActing, long headcount, int approvedCadre,
+                          long rollupFilled, long rollupActing, int rollupApproved, List<OrgNode> children) {
     }
 
-    public record PositionNode(Long id, String code, String title, String designationName, String reportsToPositionCode,
-                               boolean filled) {
-    }
-
-    /** Hierarchical organization chart as at a date (FR-EST-005, -007). */
+    /** Hierarchical organization chart as at a date (FR-EST-005, -007, REQ 7.6). Constant number of queries. */
     @Transactional(readOnly = true)
     public List<OrgNode> orgChart(LocalDate asOf) {
         LocalDate d = asOf == null ? LocalDate.now() : asOf;
         List<OrgUnit> units = orgUnits.effectiveOn(d);
-        Map<Long, String> desNames = designations.findAll().stream().collect(Collectors.toMap(Designation::getId, Designation::getName));
         Map<String, Integer> cadreByUnit = new HashMap<>();
         cadre.effectiveOn(d).forEach(c -> cadreByUnit.merge(c.getOrgUnitCode(), c.getApprovedQty(), Integer::sum));
-        Map<String, Long> headByUnit = new HashMap<>();
-        for (Object[] r : assignments.occupancy(d)) headByUnit.merge((String) r[1], (Long) r[2], Long::sum);
-        Map<String, List<Position>> posByUnit = positions.findAllByOrderByCodeAsc().stream().filter(Position::isActive)
-                .collect(Collectors.groupingBy(Position::getOrgUnitCode));
+        Map<String, long[]> occByUnit = new HashMap<>(); // [filled, acting]
+        for (Object[] r : assignments.occupancyWithActing(d)) {
+            long[] v = occByUnit.computeIfAbsent((String) r[1], k -> new long[2]);
+            v[Boolean.TRUE.equals(r[2]) ? 1 : 0] += (Long) r[3];
+        }
+        // Holders of head posts.
+        Map<String, Position> headPosts = new HashMap<>();
+        for (OrgUnit u : units) {
+            if (u.getHeadPositionCode() != null) positions.findByCode(u.getHeadPositionCode()).ifPresent(p -> headPosts.put(u.getCode(), p));
+        }
+        Map<Long, EmployeeAssignment> holderByPost = new HashMap<>();
+        if (!headPosts.isEmpty()) {
+            for (EmployeeAssignment a : assignments.findByPositionIdInEffectiveOn(headPosts.values().stream().map(Position::getId).toList(), d))
+                holderByPost.put(a.getPositionId(), a);
+        }
+        Map<Long, String> holderNames = new HashMap<>();
+        if (!holderByPost.isEmpty())
+            employees.findAllById(holderByPost.values().stream().map(EmployeeAssignment::getEmployeeId).toList())
+                    .forEach(e -> holderNames.put(e.getId(), e.getNameWithInitials()));
         Set<String> codes = units.stream().map(OrgUnit::getCode).collect(Collectors.toSet());
         Map<String, List<OrgUnit>> byParent = new HashMap<>();
         List<OrgUnit> roots = new ArrayList<>();
@@ -136,38 +177,58 @@ public class EstablishmentService implements WorkflowHandler {
             if (u.getParentCode() == null || !codes.contains(u.getParentCode())) roots.add(u);
             else byParent.computeIfAbsent(u.getParentCode(), k -> new ArrayList<>()).add(u);
         }
-        return roots.stream().map(u -> node(u, byParent, cadreByUnit, headByUnit, posByUnit, desNames, d)).toList();
+        return roots.stream().map(u -> node(u, byParent, cadreByUnit, occByUnit, headPosts, holderByPost, holderNames)).toList();
     }
 
     private OrgNode node(OrgUnit u, Map<String, List<OrgUnit>> byParent, Map<String, Integer> cadreByUnit,
-                         Map<String, Long> headByUnit, Map<String, List<Position>> posByUnit, Map<Long, String> desNames,
-                         LocalDate d) {
-        List<PositionNode> pos = posByUnit.getOrDefault(u.getCode(), List.of()).stream()
-                .map(p -> new PositionNode(p.getId(), p.getCode(), p.getTitle(), desNames.get(p.getDesignationId()),
-                        p.getReportsToPositionCode(), assignments.countInPositionOn(p.getId(), d) > 0))
-                .toList();
+                         Map<String, long[]> occByUnit, Map<String, Position> headPosts,
+                         Map<Long, EmployeeAssignment> holderByPost, Map<Long, String> holderNames) {
         List<OrgNode> kids = byParent.getOrDefault(u.getCode(), List.of()).stream()
-                .map(c -> node(c, byParent, cadreByUnit, headByUnit, posByUnit, desNames, d)).toList();
+                .map(c -> node(c, byParent, cadreByUnit, occByUnit, headPosts, holderByPost, holderNames)).toList();
+        long[] own = occByUnit.getOrDefault(u.getCode(), new long[2]);
+        int approved = cadreByUnit.getOrDefault(u.getCode(), 0);
+        long rf = own[0] + kids.stream().mapToLong(OrgNode::rollupFilled).sum();
+        long ra = own[1] + kids.stream().mapToLong(OrgNode::rollupActing).sum();
+        int rApproved = approved + kids.stream().mapToInt(OrgNode::rollupApproved).sum();
+        Position head = headPosts.get(u.getCode());
+        EmployeeAssignment holder = head == null ? null : holderByPost.get(head.getId());
         return new OrgNode(u.getCode(), u.getName(), u.getNameSi(), u.getNameTa(), u.getUnitType().name(), u.getParentCode(),
-                headByUnit.getOrDefault(u.getCode(), 0L), cadreByUnit.getOrDefault(u.getCode(), 0), pos, kids);
+                u.getLocation(), u.getHeadTitle(), u.getHeadPositionCode(), holder == null ? null : holder.getEmployeeId(),
+                holder == null ? null : holderNames.get(holder.getEmployeeId()), holder != null && holder.isActing(),
+                own[0] + own[1], approved, rf, ra, rApproved, kids);
     }
 
+    /**
+     * One establishment line (designation × unit). Vacant = Approved − Filled − Acting (≥ 0); excess = the reverse
+     * (spec §5). {@code occupied} = filled + acting.
+     */
     public record CadreRow(Long designationId, String designationCode, String designationName, String grade,
                            String orgUnitCode, String orgUnitName, int approved, Integer proposed, long occupied,
-                           long vacant, long excess) {
+                           long vacant, long excess, long filled, long acting, Integer level, String location,
+                           String division, String positionCategory, boolean dyingCadre, boolean statutory) {
     }
 
     /** Approved, proposed, occupied and vacant cadre (FR-EST-025). */
     @Transactional(readOnly = true)
     public List<CadreRow> cadreSummary(LocalDate asOf, String orgUnitCode) {
         LocalDate d = asOf == null ? LocalDate.now() : asOf;
-        Map<String, String> unitNames = orgUnits.effectiveOn(d).stream()
+        List<OrgUnit> unitList = orgUnits.effectiveOn(d);
+        Map<String, OrgUnit> unitByCode = unitList.stream().collect(Collectors.toMap(OrgUnit::getCode, u -> u, (a, b) -> a));
+        Map<String, String> unitNames = unitList.stream()
                 .collect(Collectors.toMap(OrgUnit::getCode, OrgUnit::getName, (a, b) -> a));
         Map<Long, Designation> des = designations.findAll().stream().collect(Collectors.toMap(Designation::getId, x -> x));
+        Map<Long, String> categoryOf = new HashMap<>();
+        Map<Long, String> categoryNames = categoryRepo.findAll().stream().collect(Collectors.toMap(PositionCategory::getId, PositionCategory::getName));
+        categoryAssignments.effectiveOn(d).forEach(a -> categoryOf.put(a.getDesignationId(), categoryNames.get(a.getCategoryId())));
         Map<String, Integer> approved = new LinkedHashMap<>();
         cadre.effectiveOn(d).forEach(c -> approved.put(c.getDesignationId() + "|" + c.getOrgUnitCode(), c.getApprovedQty()));
         Map<String, Long> occupied = new HashMap<>();
-        for (Object[] r : assignments.occupancy(d)) occupied.put(r[0] + "|" + r[1], (Long) r[2]);
+        Map<String, long[]> split = new HashMap<>();
+        for (Object[] r : assignments.occupancyWithActing(d)) {
+            String k = r[0] + "|" + r[1];
+            occupied.merge(k, (Long) r[3], Long::sum);
+            split.computeIfAbsent(k, x -> new long[2])[Boolean.TRUE.equals(r[2]) ? 1 : 0] += (Long) r[3];
+        }
         Map<String, Integer> proposed = new HashMap<>();
         changes.findByChangeTypeAndStatusIn(EstablishmentChange.ChangeType.CADRE_SET,
                         List.of(EstablishmentChange.Status.PENDING, EstablishmentChange.Status.RETURNED))
@@ -185,12 +246,81 @@ public class EstablishmentService implements WorkflowHandler {
             Designation ds = des.get(desId);
             int a = approved.getOrDefault(k, 0);
             long o = occupied.getOrDefault(k, 0L);
+            long[] fa = split.getOrDefault(k, new long[2]);
+            OrgUnit ou = unitByCode.get(unit);
             rows.add(new CadreRow(desId, ds == null ? null : ds.getCode(), ds == null ? "?" : ds.getName(),
                     ds == null ? null : ds.getGrade(), unit, unitNames.getOrDefault(unit, unit), a, proposed.get(k), o,
-                    Math.max(0, a - o), Math.max(0, o - a)));
+                    Math.max(0, a - o), Math.max(0, o - a), fa[0], fa[1], ds == null ? null : ds.getLevel(),
+                    ou == null ? null : ou.getLocation(), divisionOf(unit, unitByCode), categoryOf.get(desId),
+                    ds != null && ds.isDyingCadre(), ds != null && ds.isStatutory()));
         }
         rows.sort(Comparator.comparing(CadreRow::orgUnitName).thenComparing(CadreRow::designationName));
         return rows;
+    }
+
+    /** Name of the top-level group a unit rolls up to (the child of the root), used to group cadre by division. */
+    private static String divisionOf(String unit, Map<String, OrgUnit> byCode) {
+        OrgUnit u = byCode.get(unit);
+        if (u == null) return unit;
+        OrgUnit cur = u;
+        Set<String> guard = new HashSet<>();
+        while (cur.getParentCode() != null && byCode.containsKey(cur.getParentCode()) && guard.add(cur.getCode())) {
+            OrgUnit parent = byCode.get(cur.getParentCode());
+            if (parent.getParentCode() == null) return cur.getName(); // cur is a child of the root
+            cur = parent;
+        }
+        return cur.getName();
+    }
+
+    public record ReconciliationLine(String scope, String refCode, String label, int controlTotal, long matrixTotal, long difference) {
+    }
+
+    public record Reconciliation(int organizationControl, long matrixTotal, long statutoryExcluded, List<ReconciliationLine> units,
+                                 List<ReconciliationLine> designations, List<ReconciliationLine> unitsWithoutControl) {
+    }
+
+    /**
+     * REQ 6.11: compares the cadre matrix summed by designation and by unit with the control totals of the source
+     * tables and flags every difference. Statutory posts (the DG) are excluded from the 971-post total.
+     */
+    @Transactional(readOnly = true)
+    public Reconciliation reconciliation(LocalDate asOf) {
+        LocalDate d = asOf == null ? LocalDate.now() : asOf;
+        Map<Long, Designation> des = designations.findAll().stream().collect(Collectors.toMap(Designation::getId, x -> x));
+        Map<String, Long> byUnit = new TreeMap<>();
+        Map<String, Long> byDes = new TreeMap<>();
+        long total = 0, statutory = 0;
+        for (CadreAllocation c : cadre.effectiveOn(d)) {
+            Designation ds = des.get(c.getDesignationId());
+            if (ds != null && ds.isStatutory()) {
+                statutory += c.getApprovedQty();
+                continue;
+            }
+            byUnit.merge(c.getOrgUnitCode(), (long) c.getApprovedQty(), Long::sum);
+            if (ds != null) byDes.merge(ds.getCode(), (long) c.getApprovedQty(), Long::sum);
+            total += c.getApprovedQty();
+        }
+        List<CadreControlTotal> controls = controlTotals.findAll();
+        int orgControl = controls.stream().filter(c -> "ORGANIZATION".equals(c.getScope())).mapToInt(CadreControlTotal::getApprovedTotal).sum();
+        List<ReconciliationLine> units = new ArrayList<>();
+        List<ReconciliationLine> dess = new ArrayList<>();
+        Set<String> controlledUnits = new HashSet<>();
+        for (CadreControlTotal c : controls) {
+            if ("UNIT".equals(c.getScope())) {
+                controlledUnits.add(c.getRefCode());
+                long m = byUnit.getOrDefault(c.getRefCode(), 0L);
+                units.add(new ReconciliationLine("UNIT", c.getRefCode(), c.getLabel(), c.getApprovedTotal(), m, m - c.getApprovedTotal()));
+            } else if ("DESIGNATION".equals(c.getScope())) {
+                long m = byDes.getOrDefault(c.getRefCode(), 0L);
+                dess.add(new ReconciliationLine("DESIGNATION", c.getRefCode(), c.getLabel(), c.getApprovedTotal(), m, m - c.getApprovedTotal()));
+            }
+        }
+        Map<String, String> unitNames = orgUnits.effectiveOn(d).stream().collect(Collectors.toMap(OrgUnit::getCode, OrgUnit::getName, (a, b) -> a));
+        List<ReconciliationLine> orphan = new ArrayList<>();
+        byUnit.forEach((u, m) -> {
+            if (!controlledUnits.contains(u)) orphan.add(new ReconciliationLine("UNIT", u, unitNames.getOrDefault(u, u), 0, m, m));
+        });
+        return new Reconciliation(orgControl, total, statutory, units, dess, orphan);
     }
 
     @Transactional(readOnly = true)
@@ -207,21 +337,134 @@ public class EstablishmentService implements WorkflowHandler {
         EstablishmentChange c = new EstablishmentChange();
         c.setChangeType(r.changeType());
         fill(c, r);
-        c.setStatus(EstablishmentChange.Status.PENDING);
+        boolean draft = Boolean.TRUE.equals(r.draft());
+        c.setStatus(draft ? EstablishmentChange.Status.DRAFT : EstablishmentChange.Status.PENDING);
         changes.save(c);
-        WorkflowInstance wi = workflow.start(PROCESS, "EstablishmentChange", c.getId(), "Establishment change: " + c.getSummary(),
-                "/establishment/changes/" + c.getId(), null);
-        c.setWorkflowInstanceId(wi.getId());
-        audit.log(AuditAction.CREATE, "EstablishmentChange", c.getId(), c.getSummary(), null, c.getPayload());
+        audit.log(AuditAction.CREATE, "EstablishmentChange", c.getId(), (draft ? "Draft: " : "") + c.getSummary(), null, c.getPayload());
+        if (!draft) startApproval(c);
         return c;
     }
 
-    /** Correct a change that was returned by an approver; the requester then resubmits it via the workflow. */
+    /** Submits a saved draft for approval (Draft → Pending approval, REQ 6.3). */
+    @Transactional
+    public EstablishmentChange submitDraft(Long id) {
+        EstablishmentChange c = change(id);
+        if (c.getStatus() != EstablishmentChange.Status.DRAFT) throw ApiException.rule("NOT_DRAFT", "Only drafts can be submitted");
+        if (!CurrentUser.username().equals(c.getCreatedBy())) throw ApiException.forbidden("Only the author can submit this draft");
+        validate(c, true);
+        c.setStatus(EstablishmentChange.Status.PENDING);
+        startApproval(c);
+        return c;
+    }
+
+    @Transactional
+    public EstablishmentChange discardDraft(Long id) {
+        EstablishmentChange c = change(id);
+        if (c.getStatus() != EstablishmentChange.Status.DRAFT) throw ApiException.rule("NOT_DRAFT", "Only drafts can be discarded");
+        if (!CurrentUser.username().equals(c.getCreatedBy())) throw ApiException.forbidden("Only the author can discard this draft");
+        c.setStatus(EstablishmentChange.Status.CANCELLED);
+        audit.log(AuditAction.CANCEL, "EstablishmentChange", id, "Draft discarded: " + c.getSummary());
+        return c;
+    }
+
+    @Transactional
+    public EstablishmentChange attach(Long id, Long fileId) {
+        EstablishmentChange c = change(id);
+        if (c.getStatus() != EstablishmentChange.Status.DRAFT && c.getStatus() != EstablishmentChange.Status.RETURNED
+                && c.getStatus() != EstablishmentChange.Status.PENDING)
+            throw ApiException.rule("CLOSED", "Documents can only be attached to open requests");
+        c.setAttachmentFileId(fileId);
+        audit.log(AuditAction.UPLOAD, "EstablishmentChange", id, "Approval document attached");
+        return c;
+    }
+
+    private void startApproval(EstablishmentChange c) {
+        String kind = c.getChangeType() == EstablishmentChange.ChangeType.CADRE_SET ? "Cadre Change Request" : "Establishment change";
+        WorkflowInstance wi = workflow.start(PROCESS, "EstablishmentChange", c.getId(), kind + ": " + c.getSummary(),
+                "/establishment/changes/" + c.getId(), null);
+        c.setWorkflowInstanceId(wi.getId());
+    }
+
+    /** Validates a proposed change without saving it and returns its summary and, for cadre changes, the impact preview. */
+    @Transactional(readOnly = true)
+    public Map<String, Object> preview(ChangeRequest r) {
+        if (r.changeType() == null) throw ApiException.badRequest("Change type is required");
+        EstablishmentChange c = new EstablishmentChange();
+        c.setChangeType(r.changeType());
+        c.setEffectiveDate(r.effectiveDate() == null ? LocalDate.now() : r.effectiveDate());
+        c.setTargetRef(r.targetRef());
+        c.setPayload(write(r.payload() == null ? Map.of() : r.payload()));
+        c.setExceptionReason(r.exceptionReason());
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (r.changeType() == EstablishmentChange.ChangeType.CADRE_SET) {
+            CadrePayload p = read(c.getPayload(), CadrePayload.class);
+            if (p.designationId() == null || p.orgUnitCode() == null || p.approvedQty() == null)
+                throw ApiException.badRequest("Designation, unit and quantity are required");
+            out.put("impact", cadreImpact(p.designationId(), p.orgUnitCode(), p.approvedQty(), c.getEffectiveDate()));
+        }
+        try {
+            out.put("summary", validate(c, true));
+            out.put("valid", true);
+        } catch (ApiException e) {
+            out.put("valid", false);
+            out.put("error", e.getMessage());
+        }
+        return out;
+    }
+
+    /** Computes posts affected by setting a cadre line to {@code newQty} from date {@code d}. */
+    @Transactional(readOnly = true)
+    public CadreImpact cadreImpact(Long designationId, String unitCode, int newQty, LocalDate d) {
+        Designation des = designations.findById(designationId).orElseThrow(() -> ApiException.notFound("Designation", designationId));
+        int current = cadre.effectiveOn(designationId, unitCode, d).map(CadreAllocation::getApprovedQty).orElse(0);
+        long[] fa = filledActing(designationId, unitCode, d);
+        long occupied = fa[0] + fa[1];
+        int min = (int) occupied;
+        String blocked = null;
+        if (newQty < 0) blocked = "Cadre cannot be negative";
+        else if (des.isDyingCadre() && newQty > current)
+            blocked = des.getName() + " is a dying cadre: no increase or fresh recruitment is allowed";
+        int create = Math.max(0, newQty - current);
+        int removed = Math.max(0, current - newQty);
+        int vacantNow = (int) Math.max(0, current - occupied);
+        int freeze = Math.min(removed, vacantNow);
+        int abolish = removed - freeze;
+        List<String> codes = create == 0 ? List.of() : nextPostCodes(unitCode, des.getCode(), create);
+        return new CadreImpact(designationId, des.getName(), unitCode, current, newQty, fa[0], fa[1], min, newQty < min,
+                des.isDyingCadre(), create, codes, freeze, abolish, blocked);
+    }
+
+    /** [filled, acting] holders of a designation in a unit on a date. */
+    private long[] filledActing(Long designationId, String unitCode, LocalDate d) {
+        long filled = 0, acting = 0;
+        for (Object[] r : assignments.occupancySplit(designationId, unitCode, d)) {
+            if (Boolean.TRUE.equals(r[0])) acting += (Long) r[1];
+            else filled += (Long) r[1];
+        }
+        return new long[]{filled, acting};
+    }
+
+    private List<String> nextPostCodes(String unitCode, String desCode, int n) {
+        String prefix = unitCode + "/" + desCode + "/";
+        int max = 0;
+        for (Position p : positions.findByCodeStartingWith(prefix)) {
+            try {
+                max = Math.max(max, Integer.parseInt(p.getCode().substring(prefix.length())));
+            } catch (NumberFormatException ignored) {
+                // manually coded post; not part of the sequence
+            }
+        }
+        List<String> out = new ArrayList<>();
+        for (int i = 1; i <= n; i++) out.add(prefix + String.format("%03d", max + i));
+        return out;
+    }
+
+    /** Correct a change that was returned by an approver (or a saved draft); returned ones are resubmitted via the workflow. */
     @Transactional
     public EstablishmentChange revise(Long id, ChangeRequest r) {
         EstablishmentChange c = change(id);
-        if (c.getStatus() != EstablishmentChange.Status.RETURNED)
-            throw ApiException.rule("NOT_RETURNED", "Only changes returned for correction can be revised");
+        if (c.getStatus() != EstablishmentChange.Status.RETURNED && c.getStatus() != EstablishmentChange.Status.DRAFT)
+            throw ApiException.rule("NOT_RETURNED", "Only drafts and changes returned for correction can be revised");
         if (!CurrentUser.username().equals(c.getCreatedBy())) throw ApiException.forbidden("Only the submitter can revise this change");
         String before = c.getPayload();
         fill(c, r);
@@ -236,6 +479,9 @@ public class EstablishmentService implements WorkflowHandler {
         c.setTargetRef(r.targetRef());
         Map<String, Object> payload = r.payload() == null ? Map.of() : r.payload();
         c.setPayload(write(payload));
+        c.setApprovingAuthority(blank(r.approvingAuthority()) ? null : r.approvingAuthority().trim());
+        c.setReferenceNo(blank(r.referenceNo()) ? null : r.referenceNo().trim());
+        c.setExceptionReason(blank(r.exceptionReason()) ? null : r.exceptionReason().trim());
         c.setSummary(validate(c, true));
     }
 
@@ -385,11 +631,26 @@ public class EstablishmentService implements WorkflowHandler {
                 Designation ds = designations.findById(p.designationId()).filter(Designation::isActive)
                         .orElseThrow(() -> ApiException.rule("INVALID_REFERENCE", "Designation is not active"));
                 currentUnit(p.orgUnitCode(), d);
-                int now = cadre.effectiveOn(p.designationId(), p.orgUnitCode(), d).map(CadreAllocation::getApprovedQty).orElse(0);
+                CadreImpact impact = cadreImpact(p.designationId(), p.orgUnitCode(), p.approvedQty(), d);
+                if (impact.blockedReason() != null) throw ApiException.rule("CADRE_BLOCKED", impact.blockedReason());
+                if (impact.proposed() == impact.currentApproved())
+                    throw ApiException.badRequest("The proposed cadre equals the current approved cadre (" + impact.currentApproved() + ")");
+                if (impact.belowFilled()) {
+                    // REQ 6.4: never below filled + acting unless an authorised exception with a reason is recorded.
+                    if (blank(c.getExceptionReason()))
+                        throw ApiException.rule("CADRE_BELOW_FILLED", impact.filled() + " post(s) are filled and " + impact.acting()
+                                + " acting; the allowed minimum is " + impact.minimumAllowed()
+                                + ". Record an authorised exception with a reason to go lower.");
+                    if (atSubmission && !CurrentUser.get().has(lk.gov.ciaboc.hrms.security.Permission.EST_CADRE_EXCEPTION)
+                            && c.getId() == null)
+                        throw ApiException.forbidden("Only an authorised officer can record a cadre-reduction exception");
+                }
                 c.setCadreDesignationId(p.designationId());
                 c.setCadreOrgUnitCode(p.orgUnitCode());
                 c.setCadreProposedQty(p.approvedQty());
-                return "Set cadre of " + ds.getName() + " in " + p.orgUnitCode() + " from " + now + " to " + p.approvedQty();
+                c.setCadreOldQty(impact.currentApproved());
+                return "Set cadre of " + ds.getName() + " in " + p.orgUnitCode() + " from " + impact.currentApproved()
+                        + " to " + p.approvedQty();
             }
         }
         throw ApiException.badRequest("Unsupported change type");
@@ -412,7 +673,8 @@ public class EstablishmentService implements WorkflowHandler {
                 OrgUnitPayload p = read(c.getPayload(), OrgUnitPayload.class);
                 OrgUnit target = newVersion(cur, d);
                 copy(target, new OrgUnitPayload(cur.getCode(), p.name(), p.nameSi(), p.nameTa(),
-                        p.unitType() == null ? cur.getUnitType() : p.unitType(), p.parentCode(), p.sortOrder()));
+                        p.unitType() == null ? cur.getUnitType() : p.unitType(), p.parentCode(), p.sortOrder(),
+                        p.location() == null ? cur.getLocation() : p.location(), p.headTitle() == null ? cur.getHeadTitle() : p.headTitle()));
                 target.setChangeId(c.getId());
                 orgUnits.save(target);
             }
@@ -446,6 +708,50 @@ public class EstablishmentService implements WorkflowHandler {
             }
             case CADRE_SET -> {
                 CadrePayload p = read(c.getPayload(), CadrePayload.class);
+                CadreImpact impact = cadreImpact(p.designationId(), p.orgUnitCode(), p.approvedQty(), d);
+                List<String> frozen = new ArrayList<>();
+                List<String> toAbolish = new ArrayList<>();
+                // REQ 6.5: increases create vacant posts with IDs; decreases freeze vacant posts first, then mark
+                // filled excess posts "to be abolished on vacation".
+                for (String code : impact.newPositionCodes()) {
+                    Designation des = designations.findById(p.designationId()).orElseThrow();
+                    Position pos = new Position();
+                    pos.setCode(code);
+                    pos.setTitle(des.getName());
+                    pos.setDesignationId(des.getId());
+                    pos.setOrgUnitCode(p.orgUnitCode());
+                    orgUnits.effectiveOn(p.orgUnitCode(), d).map(OrgUnit::getHeadPositionCode).ifPresent(pos::setReportsToPositionCode);
+                    pos.setActivatedOn(d);
+                    pos.setChangeId(c.getId());
+                    positions.save(pos);
+                }
+                if (impact.postsToFreeze() + impact.postsToBeAbolished() > 0) {
+                    List<Position> live = positions.findByDesignationIdAndOrgUnitCodeAndActiveTrueAndPostStatus(p.designationId(), p.orgUnitCode(), "ACTIVE");
+                    live.sort(Comparator.comparing(Position::getCode).reversed());
+                    List<Position> vacant = live.stream().filter(x -> assignments.countInPositionOn(x.getId(), d) == 0).toList();
+                    List<Position> held = live.stream().filter(x -> assignments.countInPositionOn(x.getId(), d) > 0).toList();
+                    int f = impact.postsToFreeze();
+                    for (Position x : vacant) {
+                        if (f == 0) break;
+                        x.setPostStatus("FROZEN");
+                        x.setActive(false);
+                        x.setDeactivatedOn(d);
+                        x.setChangeId(c.getId());
+                        frozen.add(x.getCode());
+                        f--;
+                    }
+                    int a = impact.postsToBeAbolished();
+                    // Posts held by holders first; if holders are not linked to posts, remaining vacant post records.
+                    List<Position> pool = new ArrayList<>(held);
+                    vacant.stream().filter(x -> "ACTIVE".equals(x.getPostStatus())).forEach(pool::add);
+                    for (Position x : pool) {
+                        if (a == 0) break;
+                        x.setPostStatus("TO_BE_ABOLISHED");
+                        x.setChangeId(c.getId());
+                        toAbolish.add(x.getCode());
+                        a--;
+                    }
+                }
                 cadre.effectiveOn(p.designationId(), p.orgUnitCode(), d).ifPresent(cur -> {
                     if (cur.getEffectiveFrom().equals(d)) cadre.delete(cur);
                     else cur.setEffectiveTo(d);
@@ -460,6 +766,8 @@ public class EstablishmentService implements WorkflowHandler {
                     a.setChangeId(c.getId());
                     cadre.save(a);
                 }
+                events.publishEvent(new EstablishmentEvents.CadreChanged(c.getId(), p.designationId(), p.orgUnitCode(),
+                        impact.currentApproved(), p.approvedQty(), d, impact.newPositionCodes(), frozen, toAbolish));
             }
         }
     }
@@ -484,6 +792,8 @@ public class EstablishmentService implements WorkflowHandler {
         u.setUnitType(p.unitType());
         u.setParentCode(blank(p.parentCode()) ? null : p.parentCode());
         u.setSortOrder(p.sortOrder() == null ? 0 : p.sortOrder());
+        u.setLocation(blank(p.location()) ? null : p.location());
+        u.setHeadTitle(blank(p.headTitle()) ? null : p.headTitle().trim());
     }
 
     private static void copy(Designation d, DesignationPayload p) {
@@ -493,6 +803,11 @@ public class EstablishmentService implements WorkflowHandler {
         d.setGrade(blank(p.grade()) ? null : p.grade());
         d.setServiceCategory(blank(p.serviceCategory()) ? null : p.serviceCategory());
         d.setDescription(p.description());
+        d.setLevel(p.level());
+        d.setSalaryCode(blank(p.salaryCode()) ? null : p.salaryCode());
+        d.setDyingCadre(Boolean.TRUE.equals(p.dyingCadre()));
+        d.setStatutory(Boolean.TRUE.equals(p.statutory()));
+        d.setLegalBasis(blank(p.legalBasis()) ? null : p.legalBasis());
     }
 
     private static void copy(Position pos, PositionPayload p) {

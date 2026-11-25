@@ -32,6 +32,13 @@ public class CategorizationController {
         return service.submit(r);
     }
 
+    /** Explains whether a category may be dropped under another (closed / circular checks, REQ 7.4). */
+    @GetMapping("/categorization/check-category-move")
+    @PreAuthorize("hasAuthority('EST_VIEW')")
+    public CategorizationService.DropCheck checkCategoryMove(@RequestParam Long categoryId, @RequestParam(required = false) Long toParentId) {
+        return service.checkCategoryMove(categoryId, toParentId);
+    }
+
     @PostMapping("/position-categories")
     @PreAuthorize("hasAuthority('EST_MANAGE')")
     public PositionCategory create(@RequestBody CategorizationService.CategoryRequest r) {

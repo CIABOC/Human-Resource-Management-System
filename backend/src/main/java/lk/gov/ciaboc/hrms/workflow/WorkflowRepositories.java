@@ -26,12 +26,36 @@ interface WorkflowInstanceRepository extends JpaRepository<WorkflowInstance, Lon
     List<Long> instanceIdsActedOnBy(@Param("userId") Long userId);
 
     List<WorkflowInstance> findByIdInOrderByIdDesc(Collection<Long> ids);
+
+    List<WorkflowInstance> findByProcessCodeAndStatusInOrderByIdAsc(String processCode, Collection<WorkflowInstance.Status> statuses);
+
+    @Query("select i.versionId, count(i) from WorkflowInstance i where i.processCode = :p and i.status in :st group by i.versionId")
+    List<Object[]> openCountsByVersion(@Param("p") String processCode, @Param("st") Collection<WorkflowInstance.Status> statuses);
 }
 
 interface ApprovalActionRepository extends JpaRepository<ApprovalAction, Long> {
     List<ApprovalAction> findByInstanceIdOrderByIdAsc(Long instanceId);
 
     boolean existsByInstanceIdAndActorUserId(Long instanceId, Long actorUserId);
+}
+
+interface WorkflowVersionRepository extends JpaRepository<WorkflowVersion, Long> {
+    List<WorkflowVersion> findByDefinitionIdOrderByVersionNoDesc(Long definitionId);
+
+    List<WorkflowVersion> findByDefinitionIdAndStatusOrderByVersionNoDesc(Long definitionId, WorkflowVersion.Status status);
+
+    @Query("select coalesce(max(v.versionNo), 0) from WorkflowVersion v where v.definitionId = :def")
+    int maxVersionNo(@Param("def") Long definitionId);
+
+    long countByDefinitionId(Long definitionId);
+}
+
+interface WorkflowInstanceStepRepository extends JpaRepository<WorkflowInstanceStep, Long> {
+    List<WorkflowInstanceStep> findByInstanceIdAndRoundOrderByStepOrderAsc(Long instanceId, int round);
+
+    List<WorkflowInstanceStep> findByInstanceIdOrderByRoundAscStepOrderAsc(Long instanceId);
+
+    long countByInstanceId(Long instanceId);
 }
 
 interface DelegationRepository extends JpaRepository<Delegation, Long> {

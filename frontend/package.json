@@ -14,7 +14,7 @@
     "@fontsource/inter": "5.1.0",
     "@fontsource/noto-sans-sinhala": "5.1.0",
     "@fontsource/noto-sans-tamil": "5.1.0",
-    "@fontsource/playfair-display": "5.1.0",
+    "@fontsource/oswald": "5.1.0",
     "axios": "1.7.9",
     "i18next": "23.16.8",
     "lucide-react": "0.460.0",

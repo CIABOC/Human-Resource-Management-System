@@ -25,13 +25,13 @@ class CategorizationIntegrationTest extends IntegrationTestBase {
     @Test
     void movesApplyOnlyAfterApprovalAndClosedCategoriesRejectDrops() throws Exception {
         String est = login("establishment", "Demo@12345");
-        String dg = login("dg", "Demo@12345");
+        String dg = login("headhr", "Demo@12345");
         JsonNode chart = getJson(est, "/api/establishment/categorization");
         assertThat(chart.get("rootName").asText()).isEqualTo("Commission");
         long legal = column(chart, "LEGAL").get("id").asLong();
         long legacy = column(chart, "LEGACY").get("id").asLong();
-        long icto = jdbc.queryForObject("SELECT id FROM designation WHERE code = 'ICTO'", Long.class);
-        assertThat(chart.get("unassigned").findValuesAsText("code")).contains("ICTO");
+        long icto = jdbc.queryForObject("SELECT id FROM designation WHERE code = 'TO'", Long.class);
+        assertThat(chart.get("unassigned").findValuesAsText("code")).contains("TO");
 
         // Closed category rejects the drop.
         MvcResult closed = postJson(est, "/api/establishment/categorization/batches", Map.of(
@@ -54,8 +54,8 @@ class CategorizationIntegrationTest extends IntegrationTestBase {
 
         expectStatus(postJson(dg, "/api/workflow/instances/" + instance + "/act", Map.of("decision", "APPROVE")), 200);
         JsonNode after = getJson(est, "/api/establishment/categorization");
-        assertThat(column(after, "LEGAL").get("positions").findValuesAsText("code")).contains("ICTO");
-        assertThat(after.get("unassigned").findValuesAsText("code")).doesNotContain("ICTO");
+        assertThat(column(after, "LEGAL").get("positions").findValuesAsText("code")).contains("TO");
+        assertThat(after.get("unassigned").findValuesAsText("code")).doesNotContain("TO");
 
         JsonNode history = getJson(est, "/api/establishment/categorization/history");
         assertThat(history.get(0).get("to").asText()).isEqualTo("Legal");

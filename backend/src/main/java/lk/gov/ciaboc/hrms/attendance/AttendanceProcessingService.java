@@ -130,7 +130,7 @@ public class AttendanceProcessingService {
         if (d.isAfter(today())) throw ApiException.rule("FUTURE_DATE", "Attendance cannot be processed for future dates");
         ZoneId zone = zone();
         boolean holiday = holidays.holidaysBetween(d, d).contains(d);
-        List<WorkSchedule> effective = schedules.effectiveOn(d);
+        ScheduleService.Resolver resolver = schedules.resolverOn(d);
         Map<Long, LeaveService.LeaveDay> leaveByEmp = new HashMap<>();
         for (LeaveService.LeaveDay l : leave.approvedLeave(d, d)) {
             leaveByEmp.merge(l.employeeId(), l, (a, b) -> a.halfDay() ? b : a); // a full day wins over a half day
@@ -148,7 +148,7 @@ public class AttendanceProcessingService {
             if (e.getAppointmentDate() != null && e.getAppointmentDate().isAfter(d)) continue;
             List<String> chain = e.getOrgUnitCode() == null ? List.of()
                     : chains.computeIfAbsent(e.getOrgUnitCode(), u -> establishment.unitAndAncestors(u, d));
-            Optional<WorkSchedule> s = schedules.resolve(effective, chain, e.getEmployeeCategory());
+            Optional<WorkSchedule> s = resolver.resolve(e.getId(), chain, e.getEmployeeCategory());
             AttendanceDaily r = existing.getOrDefault(e.getId(), new AttendanceDaily());
             r.setEmployeeId(e.getId());
             r.setWorkDate(d);
@@ -173,7 +173,7 @@ public class AttendanceProcessingService {
         r.setWorkedMinutes(in != null && out != null ? (int) ChronoUnit.MINUTES.between(in, out) : 0);
         r.setLateMinutes(0);
         r.setEarlyMinutes(0);
-        r.setScheduleId(s == null ? null : s.getId());
+        r.setPolicyId(s == null ? null : s.getId());
         r.setLeaveApplicationId(null);
         r.setLeaveTypeCode(null);
         r.setLeaveHalfDay(false);
@@ -187,8 +187,8 @@ public class AttendanceProcessingService {
             r.setUnpaidLeave(!leaveDay.paid());
         }
         if (s == null) {
-            r.setStatus(AttendanceDaily.Status.NO_SCHEDULE);
-            notes.add("No working schedule applies");
+            r.setStatus(AttendanceDaily.Status.NO_POLICY);
+            notes.add("No duty-time policy applies");
         } else if (holiday) {
             r.setStatus(AttendanceDaily.Status.HOLIDAY);
         } else if (!s.isWorkDay(d)) {
@@ -199,10 +199,13 @@ public class AttendanceProcessingService {
             r.setStatus(leaveDay != null ? AttendanceDaily.Status.ON_LEAVE : AttendanceDaily.Status.ABSENT);
             if (leaveDay != null) notes.add("Half-day leave; no attendance recorded for the other half");
         } else {
-            ZonedDateTime start = d.atTime(s.getStartTime()).atZone(zone);
-            ZonedDateTime end = d.atTime(s.getEndTime()).atZone(zone);
             int late = 0, early = 0;
-            if (leaveDay == null) {
+            if (s.getStartTime() == null || s.getEndTime() == null) {
+                // flexible / shift-roster policies have no fixed in and out time; lateness is not evaluated yet
+                notes.add("Policy has no fixed duty times; late and early not evaluated");
+            } else if (leaveDay == null) {
+                ZonedDateTime start = d.atTime(s.getStartTime()).atZone(zone);
+                ZonedDateTime end = d.atTime(s.getEndTime()).atZone(zone);
                 if (in != null && in.isAfter(start.plusMinutes(s.getLateGraceMinutes()).toInstant()))
                     late = (int) ChronoUnit.MINUTES.between(start.toInstant(), in);
                 if (out != null && out.isBefore(end.minusMinutes(s.getEarlyGraceMinutes()).toInstant()))

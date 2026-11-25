@@ -29,4 +29,14 @@ public interface WorkflowHandler {
     default Map<String, Object> summary(WorkflowInstance instance) {
         return Map.of();
     }
+
+    /**
+     * Request attributes that routing rules may test (REQ 10.6), e.g. {@code days} of a leave application or
+     * {@code amount} of a claim. Keys are plain names (no {@code initiator.}/{@code subject.} prefix — those are supplied
+     * by the engine from the organization structure). Values should be numbers, booleans or short strings.
+     * Called when the request is submitted, resubmitted or migrated; failures are logged and ignored.
+     */
+    default Map<String, Object> routingAttributes(WorkflowInstance instance) {
+        return Map.of();
+    }
 }

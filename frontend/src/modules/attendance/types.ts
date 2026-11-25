@@ -118,7 +118,7 @@ export interface NoPayLine {
   effectiveDays: number;
 }
 
-export const STATUSES = ['PRESENT', 'LATE', 'EARLY', 'ABSENT', 'ON_LEAVE', 'HOLIDAY', 'WEEKEND', 'NO_SCHEDULE'];
+export const STATUSES = ['PRESENT', 'LATE', 'EARLY', 'ABSENT', 'ON_LEAVE', 'HOLIDAY', 'WEEKEND', 'NO_POLICY'];
 
 export function isoDate(d: Date) {
   const p = (n: number) => String(n).padStart(2, '0');

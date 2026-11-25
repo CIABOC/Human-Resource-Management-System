@@ -24,7 +24,7 @@ public class EstablishmentChange extends BaseEntity {
         CADRE_SET
     }
 
-    public enum Status {PENDING, RETURNED, APPLIED, REJECTED, CANCELLED}
+    public enum Status {DRAFT, PENDING, RETURNED, APPLIED, REJECTED, CANCELLED}
 
     @Enumerated(EnumType.STRING)
     @Column(name = "change_type", nullable = false, length = 30)
@@ -65,4 +65,23 @@ public class EstablishmentChange extends BaseEntity {
 
     @Column(name = "cadre_proposed_qty")
     private Integer cadreProposedQty;
+
+    @Column(name = "cadre_old_qty")
+    private Integer cadreOldQty;
+
+    /** Approving authority, e.g. "The Commission" (REQ 6.2). */
+    @Column(name = "approving_authority", length = 200)
+    private String approvingAuthority;
+
+    /** Circular or Commission decision number. */
+    @Column(name = "reference_no", length = 100)
+    private String referenceNo;
+
+    /** Attached approval document. */
+    @Column(name = "attachment_file_id")
+    private Long attachmentFileId;
+
+    /** Authorised exception for reducing cadre below filled + acting posts (REQ 6.4). */
+    @Column(name = "exception_reason", length = 1000)
+    private String exceptionReason;
 }

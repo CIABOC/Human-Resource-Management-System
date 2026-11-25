@@ -60,10 +60,14 @@ public class BootstrapRunner implements ApplicationRunner {
                 new Demo("employee", "Investigating Officer (demo)", "CIA-0008", DataScope.SELF, List.of("EMPLOYEE")),
                 new Demo("dg", "Director General (demo)", "CIA-0001", DataScope.ALL, List.of("MANAGEMENT", "EMPLOYEE")),
                 new Demo("auditor", "Internal Auditor (demo)", "CIA-0010", DataScope.ALL, List.of("AUDITOR", "EMPLOYEE")),
-                new Demo("hr2", "HR Assistant (demo checker)", "CIA-0012", DataScope.ALL, List.of("HR_ADMIN", "EMPLOYEE")));
+                new Demo("hr2", "HR Assistant (demo checker)", "CIA-0012", DataScope.ALL, List.of("HR_ADMIN", "EMPLOYEE")),
+                new Demo("headhr", "Head of HR (demo)", "CIA-0016", DataScope.ALL, List.of("HEAD_OF_HR", "EMPLOYEE")),
+                new Demo("publisher", "Publisher (demo)", null, DataScope.ALL, List.of("PUBLISHER")),
+                new Demo("commission", "The Commission (demo)", null, DataScope.ALL, List.of("COMMISSION")),
+                new Demo("payrollacct", "Payroll Accountant (demo)", null, DataScope.ALL, List.of("PAYROLL_ACCOUNTANT")));
         for (Demo d : demos) {
             if (users.existsByUsernameIgnoreCase(d.username())) continue;
-            Long empId = employees.findByEmployeeNo(d.empNo()).map(e -> e.getId()).orElse(null);
+            Long empId = d.empNo() == null ? null : employees.findByEmployeeNo(d.empNo()).map(e -> e.getId()).orElse(null);
             if (empId != null && users.findByEmployeeId(empId).isPresent()) empId = null;
             AppUser u = create(d.username(), d.name(), d.username() + "@demo.ciaboc.lk", empId, d.scope(), DEMO_PASSWORD, d.roleCodes());
             log.info("Demo user '{}' created ({})", u.getUsername(), String.join(",", d.roleCodes()));

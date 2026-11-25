@@ -1,9 +1,6 @@
 package lk.gov.ciaboc.hrms.attendance;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
-import lk.gov.ciaboc.hrms.common.BaseEntity;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lk.gov.ciaboc.hrms.common.EffectiveDated;
 import lombok.Getter;
 import lombok.Setter;
@@ -16,60 +13,66 @@ import java.util.EnumSet;
 import java.util.Set;
 
 /**
- * Effective-dated working schedule (FR-ATT-010..013). Applies institution-wide when org unit and category are empty,
- * otherwise to the org unit (and its sub-units) and/or employee category; the most specific schedule wins.
+ * Working schedule as shown on the attendance configuration screens and used by daily processing (FR-ATT-010..013).
+ * Since V60 this is a view, not a table: one APPROVED {@link DutyPolicy} version combined with the policy's group-level
+ * {@link DutyPolicyAssignment} (organization, division or category). {@code id} is the policy version id.
  */
 @Getter
 @Setter
-@Entity
-@Table(name = "work_schedule")
-public class WorkSchedule extends BaseEntity implements EffectiveDated {
-    @Column(nullable = false, length = 40)
+public class WorkSchedule implements EffectiveDated {
+    private Long id;
     private String code;
-
-    @Column(nullable = false, length = 150)
+    private int versionNo;
     private String name;
-
-    @Column(name = "start_time", nullable = false)
     private LocalTime startTime;
-
-    @Column(name = "end_time", nullable = false)
     private LocalTime endTime;
-
-    @Column(name = "late_grace_minutes", nullable = false)
     private int lateGraceMinutes;
-
-    @Column(name = "early_grace_minutes", nullable = false)
     private int earlyGraceMinutes;
-
     /** Comma-separated MON..SUN. */
-    @Column(name = "work_days", nullable = false, length = 40)
     private String workDays;
-
-    @Column(name = "org_unit_code", length = 40)
     private String orgUnitCode;
-
-    @Column(name = "employee_category", length = 40)
     private String employeeCategory;
-
-    @Column(name = "effective_from", nullable = false)
     private LocalDate effectiveFrom;
-
-    @Column(name = "effective_to")
     private LocalDate effectiveTo;
-
-    @Column(length = 500)
     private String remarks;
 
+    static WorkSchedule of(DutyPolicy p, DutyPolicyAssignment a) {
+        WorkSchedule s = new WorkSchedule();
+        s.id = p.getId();
+        s.code = p.getCode();
+        s.versionNo = p.getVersionNo();
+        s.name = p.getName();
+        s.startTime = p.getInTime();
+        s.endTime = p.getOutTime();
+        s.lateGraceMinutes = p.getGraceMinutes();
+        s.earlyGraceMinutes = p.getEarlyGraceMinutes();
+        s.workDays = p.getWorkingDays();
+        s.effectiveFrom = p.getEffectiveFrom();
+        s.effectiveTo = p.getEffectiveTo();
+        s.remarks = p.getReason();
+        if (a != null) {
+            s.orgUnitCode = a.getOrgUnitCode();
+            s.employeeCategory = a.getEmployeeCategory();
+        }
+        return s;
+    }
+
     public Set<DayOfWeek> workDaySet() {
+        // no working days configured (e.g. a shift roster): every day is a potential working day
+        if (workDays == null || workDays.isBlank()) return EnumSet.allOf(DayOfWeek.class);
         Set<DayOfWeek> out = EnumSet.noneOf(DayOfWeek.class);
-        if (workDays == null) return out;
-        Arrays.stream(workDays.split(",")).map(String::trim).filter(s -> !s.isEmpty()).forEach(s -> out.add(toDay(s)));
+        Arrays.stream(workDays.split(",")).map(String::trim).filter(x -> !x.isEmpty()).forEach(x -> out.add(toDay(x)));
         return out;
     }
 
     public boolean isWorkDay(LocalDate d) {
         return workDaySet().contains(d.getDayOfWeek());
+    }
+
+    @JsonIgnore
+    @Override
+    public boolean isEffectiveOn(LocalDate date) {
+        return EffectiveDated.super.isEffectiveOn(date);
     }
 
     static DayOfWeek toDay(String s) {

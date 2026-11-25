@@ -52,7 +52,11 @@ public final class Categorization {
         @Column(name = "batch_id", nullable = false)
         private Long batchId;
 
-        @Column(name = "designation_id", nullable = false)
+        /** DESIGNATION (move a designation between categories) or CATEGORY (re-parent a category). */
+        @Column(name = "line_type", nullable = false, length = 20)
+        private String lineType = "DESIGNATION";
+
+        @Column(name = "designation_id")
         private Long designationId;
 
         @Column(name = "from_category_id")
@@ -60,6 +64,15 @@ public final class Categorization {
 
         @Column(name = "to_category_id")
         private Long toCategoryId;
+
+        @Column(name = "category_id")
+        private Long categoryId;
+
+        @Column(name = "from_parent_id")
+        private Long fromParentId;
+
+        @Column(name = "to_parent_id")
+        private Long toParentId;
     }
 
     /** Effective-dated membership of a designation in a category. */

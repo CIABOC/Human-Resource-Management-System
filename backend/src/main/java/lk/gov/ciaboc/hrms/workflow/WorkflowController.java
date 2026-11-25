@@ -30,6 +30,8 @@ public class WorkflowController {
     private final DelegationRepository delegations;
     private final AppUserRepository users;
     private final AuditService audit;
+    private final WorkflowVersionService versionService;
+    private final WorkflowDesignerService designer;
 
     // ---- approver views ----
 
@@ -82,12 +84,25 @@ public class WorkflowController {
         return service.cancel(id, r == null ? null : r.comment());
     }
 
-    // ---- configuration (FR-WFL-001..003, 009) ----
+    // ---- configuration (FR-WFL-001..003, 009; REQ 10.7, 10.9) ----
+
+    /** Process with the version in force, the pending draft and the default path's stages (for list screens). */
+    public record DefinitionView(Long id, String processCode, String name, String description, boolean active,
+                                 Integer currentVersionNo, Long currentVersionId, java.time.Instant currentEffectiveFrom,
+                                 Integer scheduledVersionNo, java.time.Instant scheduledEffectiveFrom,
+                                 Long draftVersionId, Integer draftVersionNo, int pathCount, int ruleCount,
+                                 List<StageSummary> stages, long openRequests) {
+    }
+
+    public record StageSummary(int stageOrder, String name, String actionType, String approverType, String approverRef, Integer slaHours,
+                               String escalationRoleCode, String description) {
+    }
 
     @GetMapping("/definitions")
     @PreAuthorize("hasAuthority('WFL_CONFIG')")
-    public List<WorkflowDefinition> definitions() {
-        return definitions.findAll(Sort.by("processCode"));
+    @Transactional(readOnly = true)
+    public List<DefinitionView> definitions() {
+        return definitions.findAll(Sort.by("processCode")).stream().map(designer::view).toList();
     }
 
     public record StageRequest(@NotBlank @Size(max = 150) String name, @NotNull WorkflowStage.ApproverType approverType,
@@ -96,40 +111,39 @@ public class WorkflowController {
     }
 
     public record DefinitionRequest(@NotBlank @Size(max = 150) String name, @Size(max = 500) String description,
-                                    boolean active, @NotEmpty List<@Valid StageRequest> stages) {
+                                    boolean active, List<@Valid StageRequest> stages) {
     }
 
+    /**
+     * Updates name, description and active flag. When {@code stages} are given (single-chain editor), they are
+     * published as a new version in force immediately; earlier versions are retained (G-2).
+     */
     @PutMapping("/definitions/{id}")
     @PreAuthorize("hasAuthority('WFL_CONFIG')")
     @Transactional
-    public WorkflowDefinition update(@PathVariable Long id, @Valid @RequestBody DefinitionRequest r) {
+    public DefinitionView update(@PathVariable Long id, @Valid @RequestBody DefinitionRequest r) {
         WorkflowDefinition d = definitions.findById(id).orElseThrow(() -> ApiException.notFound("Workflow", id));
-        Map<String, Object> before = Map.of("stages", d.getStages().stream()
-                .map(s -> s.getStageOrder() + ":" + s.getName() + ":" + s.getApproverType() + ":" + s.getApproverRef()).toList());
+        Map<String, Object> before = Map.of("name", d.getName(), "active", d.isActive());
         d.setName(r.name());
         d.setDescription(r.description());
         d.setActive(r.active());
-        d.getStages().clear();
-        definitions.flush();
-        List<WorkflowStage> stages = new ArrayList<>();
-        int order = 1;
-        for (StageRequest s : r.stages()) {
-            if (s.approverType() != WorkflowStage.ApproverType.DIVISION_HEAD && (s.approverRef() == null || s.approverRef().isBlank()))
-                throw ApiException.badRequest("Stage '" + s.name() + "' needs an approver reference");
-            WorkflowStage st = new WorkflowStage();
-            st.setDefinition(d);
-            st.setStageOrder(order++);
-            st.setName(s.name());
-            st.setApproverType(s.approverType());
-            st.setApproverRef(s.approverType() == WorkflowStage.ApproverType.DIVISION_HEAD ? null : s.approverRef().trim());
-            st.setSlaHours(s.slaHours());
-            st.setEscalationRoleCode(s.escalationRoleCode());
-            stages.add(st);
+        String versionNote = "";
+        if (r.stages() != null && !r.stages().isEmpty()) {
+            List<WorkflowModel.StageDef> stages = new ArrayList<>();
+            for (StageRequest s : r.stages()) {
+                if (s.approverType() != WorkflowStage.ApproverType.DIVISION_HEAD && (s.approverRef() == null || s.approverRef().isBlank()))
+                    throw ApiException.badRequest("Stage '" + s.name() + "' needs an approver reference");
+                stages.add(new WorkflowModel.StageDef(s.name(), WorkflowModel.ActionType.APPROVE, WorkflowModel.Mode.ANY,
+                        new ArrayList<>(List.of(new WorkflowModel.ApproverDef(WorkflowModel.ApproverType.valueOf(s.approverType().name()),
+                                s.approverType() == WorkflowStage.ApproverType.DIVISION_HEAD ? null : s.approverRef().trim()))),
+                        null, s.slaHours(), s.escalationRoleCode(), null));
+            }
+            WorkflowVersion v = versionService.publishSingleChain(d, stages, "Approval chain edited");
+            versionNote = "; version " + v.getVersionNo() + " published";
         }
-        d.getStages().addAll(stages);
-        audit.log(AuditAction.CONFIG_CHANGE, "WorkflowDefinition", id, "Workflow " + d.getProcessCode() + " reconfigured", before,
-                Map.of("stages", stages.stream().map(s -> s.getStageOrder() + ":" + s.getName() + ":" + s.getApproverType() + ":" + s.getApproverRef()).toList()));
-        return d;
+        audit.log(AuditAction.CONFIG_CHANGE, "WorkflowDefinition", id, "Workflow " + d.getProcessCode() + " reconfigured" + versionNote, before,
+                Map.of("name", d.getName(), "active", d.isActive()));
+        return designer.view(d);
     }
 
     // ---- delegations (FR-WFL-007) ----

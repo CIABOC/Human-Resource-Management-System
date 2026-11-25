@@ -4,10 +4,10 @@
 
 INSERT INTO rec_vacancy (version, created_at, created_by, reference_no, title, designation_id, org_unit_code, num_posts, status,
                          opening_date, closing_date, description, requirements, exam_weight, interview_weight)
-SELECT 0, now(), 'demo', 'VAC-DEMO-001', 'Management Service Officer (HR Section)', d.id, 'ADMIN-HR', 1, 'OPEN',
+SELECT 0, now(), 'demo', 'VAC-DEMO-001', 'Anti-Corruption Management Officer (Administration)', d.id, 'ADMIN', 1, 'OPEN',
        CURRENT_DATE - 10, CURRENT_DATE + 20, 'Clerical support to the Human Resources Section.',
        'G.C.E. (A/L) with three passes; proficiency in Sinhala/Tamil and English; computer literacy.', 60, 40
-FROM designation d WHERE d.code = 'MA'
+FROM designation d WHERE d.code = 'ACMO'
 ON CONFLICT (reference_no) DO NOTHING;
 
 INSERT INTO rec_announcement (version, created_at, created_by, vacancy_id, title, content, publish_date, closing_date, published, published_at, published_by)

@@ -26,7 +26,7 @@ public class AttendanceDashboard implements DashboardContributor, MasterDataUsag
     private final NamedParameterJdbcTemplate jdbc;
     private final EmployeeLookup lookup;
     private final AttendanceEventRepository events;
-    private final WorkScheduleRepository schedules;
+    private final DutyPolicyAssignmentRepository schedules;
     private final AttendanceProcessingService processing;
 
     @Override

@@ -101,11 +101,14 @@ public class CoreReports implements ReportProvider {
                         .filters(Filter.DATE_RANGE)
                         .col("submitted_at", "When", "datetime").col("submitted_by", "By").col("designation", "Designation")
                         .col("from_category", "From").col("to_category", "To").col("effective_date", "Effective", "date").col("status", "Status")
-                        .sql("SELECT b.created_at AS submitted_at, b.created_by AS submitted_by, d.name AS designation, " +
-                                "COALESCE(f.name, 'Unassigned') AS from_category, COALESCE(t.name, 'Unassigned') AS to_category, " +
+                        .sql("SELECT b.created_at AS submitted_at, b.created_by AS submitted_by, " +
+                                "CASE WHEN l.line_type = 'CATEGORY' THEN 'Category: ' || c.name ELSE d.name END AS designation, " +
+                                "CASE WHEN l.line_type = 'CATEGORY' THEN COALESCE(fp.name, 'Top level') ELSE COALESCE(f.name, 'Unassigned') END AS from_category, " +
+                                "CASE WHEN l.line_type = 'CATEGORY' THEN COALESCE(tp.name, 'Top level') ELSE COALESCE(t.name, 'Unassigned') END AS to_category, " +
                                 "b.effective_date, b.status FROM categorization_line l JOIN categorization_batch b ON b.id = l.batch_id " +
-                                "JOIN designation d ON d.id = l.designation_id LEFT JOIN position_category f ON f.id = l.from_category_id " +
-                                "LEFT JOIN position_category t ON t.id = l.to_category_id " +
+                                "LEFT JOIN designation d ON d.id = l.designation_id LEFT JOIN position_category f ON f.id = l.from_category_id " +
+                                "LEFT JOIN position_category t ON t.id = l.to_category_id LEFT JOIN position_category c ON c.id = l.category_id " +
+                                "LEFT JOIN position_category fp ON fp.id = l.from_parent_id LEFT JOIN position_category tp ON tp.id = l.to_parent_id " +
                                 "WHERE (CAST(:from AS date) IS NULL OR b.created_at >= CAST(:from AS date)) " +
                                 "AND (CAST(:to AS date) IS NULL OR b.created_at < CAST(:to AS date) + 1) ORDER BY b.created_at DESC, l.id")
                         .build(),

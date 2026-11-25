@@ -29,19 +29,19 @@ class RecruitmentIntegrationTest extends IntegrationTestBase {
         String dg = login("dg", "Demo@12345");
         Long io = jdbc.queryForObject("SELECT id FROM designation WHERE code = 'IO'", Long.class);
 
-        // Cadre-based suggestions include the vacant Investigating Officer posts in INV-OPS.
+        // Cadre-based suggestions include the vacant Investigating Officer posts in INV-HO.
         JsonNode sugg = getJson(hr, "/api/recruitment/vacancies/suggestions");
         boolean found = false;
-        for (JsonNode s : sugg) if (s.get("designationId").asLong() == io && "INV-OPS".equals(s.get("orgUnitCode").asText())) found = true;
+        for (JsonNode s : sugg) if (s.get("designationId").asLong() == io && "INV-HO".equals(s.get("orgUnitCode").asText())) found = true;
         assertThat(found).isTrue();
 
         // A vacancy for more posts than the cadre leaves vacant is rejected.
         MvcResult tooMany = postJson(hr, "/api/recruitment/vacancies", Map.of("title", "IO", "designationId", io,
-                "orgUnitCode", "INV-OPS", "numPosts", 500));
+                "orgUnitCode", "INV-HO", "numPosts", 500));
         expectStatus(tooMany, 422);
 
         MvcResult vr = postJson(hr, "/api/recruitment/vacancies", Map.of("title", "Investigating Officer (test)", "designationId", io,
-                "orgUnitCode", "INV-OPS", "numPosts", 1, "closingDate", LocalDate.now().plusDays(30).toString()));
+                "orgUnitCode", "INV-HO", "numPosts", 1, "closingDate", LocalDate.now().plusDays(30).toString()));
         expectStatus(vr, 200);
         long vacancyId = body(vr).get("id").asLong();
         expectStatus(postJson(hr, "/api/recruitment/vacancies/" + vacancyId + "/status", Map.of("status", "OPEN")), 200);
@@ -109,7 +109,7 @@ class RecruitmentIntegrationTest extends IntegrationTestBase {
         expectStatus(ap, 200);
         long employeeId = body(ap).get("employeeId").asLong();
         JsonNode e = getJson(hr, "/api/employees/" + employeeId);
-        assertThat(e.toString()).contains("Applicant One Perera").contains("INV-OPS");
+        assertThat(e.toString()).contains("Applicant One Perera").contains("INV-HO");
         JsonNode history = getJson(hr, "/api/employees/" + employeeId + "/service-history");
         assertThat(history.get("assignments").size()).isEqualTo(1);
         assertThat(history.get("events").findValues("eventType").stream().map(JsonNode::asText).toList())
@@ -125,7 +125,7 @@ class RecruitmentIntegrationTest extends IntegrationTestBase {
             if ("APPOINTMENT".equals(t.get("code").asText()) && "en".equals(t.get("language").asText())) templateId = t.get("id").asLong();
         MvcResult pv = postJson(hr, "/api/recruitment/applicants/" + a1 + "/letters/preview", Map.of("templateId", templateId));
         expectStatus(pv, 200);
-        assertThat(body(pv).get("html").asText()).contains("Investigating Officer").contains(empNo);
+        assertThat(body(pv).get("html").asText()).contains("Investigation Officer").contains(empNo);
         MvcResult letter = postJson(hr, "/api/recruitment/applicants/" + a1 + "/letters", Map.of("templateId", templateId, "sendEmail", true));
         expectStatus(letter, 200);
         assertThat(body(letter).get("status").asText()).isIn("QUEUED", "PREPARED");

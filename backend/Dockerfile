@@ -16,7 +16,7 @@ ENV TZ=Asia/Colombo \
 WORKDIR /app
 COPY --from=build /src/target/ciaboc-hrms-*.jar /app/app.jar
 USER hrms
-EXPOSE 8080
+EXPOSE 8081
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
-  CMD wget -qO- http://localhost:8080/actuator/health/readiness || exit 1
+  CMD wget -qO- http://localhost:8081/actuator/health/readiness || exit 1
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/app.jar"]

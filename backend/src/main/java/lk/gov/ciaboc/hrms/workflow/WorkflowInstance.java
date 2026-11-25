@@ -1,5 +1,7 @@
 package lk.gov.ciaboc.hrms.workflow;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lk.gov.ciaboc.hrms.common.BaseEntity;
 import lombok.Getter;
@@ -67,4 +69,50 @@ public class WorkflowInstance extends BaseEntity {
 
     @Column(nullable = false)
     private boolean escalated;
+
+    // ---- versioned routing (REQ 10.4-10.9)
+
+    /** Workflow version this request runs on; kept until it completes unless an administrator migrates it. */
+    @Column(name = "version_id")
+    private Long versionId;
+
+    /** Employee the request is about (null = the requester); used for SUPERVISOR / walk-up routing from the subject. */
+    @Column(name = "subject_employee_id")
+    private Long subjectEmployeeId;
+
+    @Column(name = "version_no")
+    private Integer versionNo;
+
+    @Column(name = "path_code", length = 40)
+    private String pathCode;
+
+    @Column(name = "path_name", length = 150)
+    private String pathName;
+
+    /** Routing rule that selected the path; null = default path. */
+    @Column(name = "matched_rule", length = 150)
+    private String matchedRule;
+
+    /** JSON snapshot of the request attributes supplied at submission (re-used on resubmission and migration). */
+    @JsonIgnore
+    @Column(name = "routing_attributes", columnDefinition = "TEXT")
+    private String routingAttributes;
+
+    /** Incremented whenever the path is resolved again (resubmission, migration). */
+    @Column(name = "routing_round", nullable = false)
+    private int routingRound = 1;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "current_action_type", length = 20)
+    private WorkflowModel.ActionType currentActionType;
+
+    /** When the current stage's SLA expires; null = no SLA. */
+    @Column(name = "due_at")
+    private Instant dueAt;
+
+    /** Pending and past its stage SLA (D-4). */
+    @JsonProperty("overdue")
+    public boolean isOverdue() {
+        return status == Status.PENDING && dueAt != null && dueAt.isBefore(Instant.now());
+    }
 }

@@ -50,4 +50,16 @@ public class OrgUnit extends BaseEntity implements EffectiveDated {
 
     @Column(name = "change_id")
     private Long changeId;
+
+    /** LOCATION master-data code: HEAD_OFFICE or REGIONAL (null when the unit has no location split). */
+    @Column(length = 20)
+    private String location;
+
+    /** Title of the post that heads the unit, e.g. "Director (Investigation)". */
+    @Column(name = "head_title", length = 200)
+    private String headTitle;
+
+    /** Position code of the unit head (drives reporting lines and workflow routing). */
+    @Column(name = "head_position_code", length = 40)
+    private String headPositionCode;
 }

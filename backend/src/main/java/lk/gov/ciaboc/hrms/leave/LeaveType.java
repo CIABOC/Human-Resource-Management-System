@@ -64,6 +64,13 @@ public class LeaveType extends BaseEntity {
     @Column(nullable = false)
     private boolean active = true;
 
+    /**
+     * Short leave covers a late arrival or early departure on one day (REQ 13.3); it is not charged against a balance
+     * and does not mark the day as leave in attendance.
+     */
+    @Column(name = "short_leave", nullable = false)
+    private boolean shortLeave;
+
     /** True when a supporting document is mandatory for an application of the given length. */
     public boolean documentRequiredFor(java.math.BigDecimal days) {
         if (!requiresDocument) return false;

@@ -29,6 +29,9 @@ export interface MasterDataItem {
   nameTa?: string | null;
   description?: string | null;
   sortOrder: number;
+  location?: string | null;
+  headTitle?: string | null;
+  headPositionCode?: string | null;
   active: boolean;
   effectiveFrom: string;
   effectiveTo?: string | null;
@@ -43,6 +46,9 @@ export interface OrgUnit {
   unitType: 'DIVISION' | 'DEPARTMENT' | 'SECTION' | 'SUB_SECTION';
   parentCode?: string | null;
   sortOrder: number;
+  location?: string | null;
+  headTitle?: string | null;
+  headPositionCode?: string | null;
   effectiveFrom: string;
   effectiveTo?: string | null;
 }
@@ -57,6 +63,11 @@ export interface Designation {
   serviceCategory?: string | null;
   description?: string | null;
   active: boolean;
+  level?: number | null;
+  salaryCode?: string | null;
+  dyingCadre?: boolean;
+  statutory?: boolean;
+  legalBasis?: string | null;
 }
 
 export interface Position {
@@ -69,6 +80,7 @@ export interface Position {
   active: boolean;
   activatedOn?: string | null;
   deactivatedOn?: string | null;
+  postStatus?: string | null;
 }
 
 export type WorkflowStatus = 'PENDING' | 'RETURNED' | 'APPROVED' | 'REJECTED' | 'CANCELLED';

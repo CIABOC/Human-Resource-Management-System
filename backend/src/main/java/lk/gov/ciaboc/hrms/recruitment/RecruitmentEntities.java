@@ -15,7 +15,14 @@ public final class RecruitmentEntities {
     private RecruitmentEntities() {
     }
 
-    public enum VacancyStatus {DRAFT, OPEN, CLOSED, FILLED, CANCELLED}
+    /**
+     * Vacancy register status (spec v2.1 REQ 5.4): FORECAST (post will become vacant), OPEN (vacant, not advertised),
+     * ADVERTISED (published with an approved SOR), CLOSED (applications closed, selection in progress), FILLED,
+     * FROZEN (post removed from cadre / recruitment suspended), CANCELLED.
+     */
+    public enum VacancyStatus {FORECAST, OPEN, ADVERTISED, CLOSED, FILLED, FROZEN, CANCELLED}
+
+    public enum VacancySource {AUTO, MANUAL}
 
     /**
      * Applicant pipeline. RECOMMENDED / SELECTED / NOT_SELECTED are only set by the selection approval workflow, never
@@ -44,7 +51,7 @@ public final class RecruitmentEntities {
         private int numPosts;
         @Enumerated(EnumType.STRING)
         @Column(nullable = false, length = 20)
-        private VacancyStatus status = VacancyStatus.DRAFT;
+        private VacancyStatus status = VacancyStatus.OPEN;
         @Column(name = "opening_date")
         private LocalDate openingDate;
         @Column(name = "closing_date")
@@ -57,6 +64,35 @@ public final class RecruitmentEntities {
         private BigDecimal examWeight;
         @Column(name = "interview_weight", nullable = false)
         private BigDecimal interviewWeight;
+        /** Post (org_position) that is or will be vacant; null for multi-post or designation-level vacancies. */
+        @Column(name = "position_id")
+        private Long positionId;
+        /** rec_vacancy_trigger code (REQ 5.1). */
+        @Column(name = "trigger_code", nullable = false, length = 30)
+        private String triggerCode = "MANUAL";
+        @Enumerated(EnumType.STRING)
+        @Column(nullable = false, length = 10)
+        private VacancySource source = VacancySource.MANUAL;
+        /** Idempotency key of automatically created vacancies (e.g. CCR:12:IT/ITO/003). */
+        @Column(name = "source_key", unique = true, length = 120)
+        private String sourceKey;
+        /** Date the post becomes (or became) vacant. */
+        @Column(name = "expected_date")
+        private LocalDate expectedDate;
+        @Column(name = "vacated_by_employee_id")
+        private Long vacatedByEmployeeId;
+        @Column(name = "cadre_change_id")
+        private Long cadreChangeId;
+        /** Linked Scheme of Recruitment version (REQ 5.4, 5.5). */
+        @Column(name = "sor_id")
+        private Long sorId;
+        /** Posts filled by placements (transfer / promotion into the post) rather than by appointment of an applicant. */
+        @Column(name = "filled_posts", nullable = false)
+        private int filledPosts;
+        @Column(name = "filled_on")
+        private LocalDate filledOn;
+        @Column(name = "status_reason", length = 1000)
+        private String statusReason;
     }
 
     @Getter

@@ -299,11 +299,14 @@ public class SelectionService implements WorkflowHandler {
         String unit = RecruitmentService.blank(r.orgUnitCode()) ? v.getOrgUnitCode() : r.orgUnitCode();
         Long des = r.designationId() == null ? v.getDesignationId() : r.designationId();
         String status = RecruitmentService.blank(r.status()) ? "PROBATION" : r.status();
+        // A vacancy for a specific post places the appointee in that post unless another post is chosen (REQ 5.7).
+        Long positionId = r.positionId() != null ? r.positionId()
+                : unit.equals(v.getOrgUnitCode()) && des.equals(v.getDesignationId()) ? v.getPositionId() : null;
         EmployeeService.EmployeeRequest req = new EmployeeService.EmployeeRequest(r.employeeNo().trim(), a.getTitle(),
                 a.getFullName(), a.getNameWithInitials(), null, null, a.getNic(), a.getDateOfBirth(), a.getGender(),
                 a.getCivilStatus(), a.getEmail(), null, a.getMobile(), a.getAddress(), a.getAddress(), status,
                 r.employmentType(), r.employeeCategory(), RecruitmentService.blankToNull(r.serviceCategory()), date,
-                null, null, null, null, null, null, null, null, false, unit, des, r.positionId());
+                null, null, null, null, null, null, null, null, false, unit, des, positionId);
         Employee e = employees.create(req);
         employees.event(e.getId(), "RECRUITMENT", date, "Recruited under vacancy " + v.getReferenceNo() + " (application "
                 + a.getApplicationNo() + ")", v.getReferenceNo());

@@ -26,7 +26,7 @@ mvn spring-boot:run -Dspring-boot.run.profiles=dev
 # 3. Web
 cd frontend
 npm install
-npm run dev            # http://localhost:5173  (proxies /api to :8080)
+npm run dev            # http://localhost:5000  (proxies /api to :8081)
 ```
 
 Demo accounts (dev profile only), password **`Demo@12345`**:
@@ -68,7 +68,7 @@ See [docs/TEST_APPROACH.md](docs/TEST_APPROACH.md).
 - [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) — releases, requirement status, open items, risks
 - [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) — conventions for every module
 - [docs/TEST_APPROACH.md](docs/TEST_APPROACH.md)
-- API documentation: `http://localhost:8080/api/docs` (development only)
+- API documentation: `http://localhost:8081/api/docs` (development only)
 
 ## Key design decisions
 

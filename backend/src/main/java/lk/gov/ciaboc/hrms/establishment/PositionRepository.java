@@ -15,4 +15,8 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
     long countByDesignationIdAndActiveTrue(Long designationId);
 
     long countByOrgUnitCodeAndActiveTrue(String orgUnitCode);
+
+    List<Position> findByCodeStartingWith(String prefix);
+
+    List<Position> findByDesignationIdAndOrgUnitCodeAndActiveTrueAndPostStatus(Long designationId, String orgUnitCode, String postStatus);
 }

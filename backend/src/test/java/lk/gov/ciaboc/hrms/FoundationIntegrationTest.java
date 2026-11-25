@@ -79,47 +79,88 @@ class FoundationIntegrationTest extends IntegrationTestBase {
     @Test
     void establishmentCadreChangeIsAppliedOnlyAfterApproval() throws Exception {
         String est = login("establishment", "Demo@12345");
-        Long icto = jdbc.queryForObject("SELECT id FROM designation WHERE code = 'ICTO'", Long.class);
+        Long ito = jdbc.queryForObject("SELECT id FROM designation WHERE code = 'ITO'", Long.class);
+        // Impact preview: +2 posts with IDs.
+        JsonNode preview = body(postJson(est, "/api/establishment/changes/preview", Map.of("changeType", "CADRE_SET",
+                "payload", Map.of("designationId", ito, "orgUnitCode", "IT", "approvedQty", 4))));
+        assertThat(preview.get("impact").get("postsToCreate").asInt()).isEqualTo(2);
+        assertThat(preview.get("impact").get("newPositionCodes").get(0).asText()).isEqualTo("IT/ITO/003");
+
         MvcResult submitted = postJson(est, "/api/establishment/changes", Map.of(
-                "changeType", "CADRE_SET", "effectiveDate", LocalDate.now().toString(), "reason", "Additional ICT capacity",
-                "payload", Map.of("designationId", icto, "orgUnitCode", "ICT", "approvedQty", 6)));
+                "changeType", "CADRE_SET", "effectiveDate", LocalDate.now().toString(), "reason", "Additional IT capacity",
+                "approvingAuthority", "The Commission", "referenceNo", "CIABOC/CD/2026/14",
+                "payload", Map.of("designationId", ito, "orgUnitCode", "IT", "approvedQty", 4)));
         expectStatus(submitted, 200);
         long changeId = body(submitted).get("id").asLong();
         long instanceId = body(submitted).get("workflowInstanceId").asLong();
 
-        JsonNode cadre = getJson(est, "/api/establishment/cadre?orgUnitCode=ICT");
-        assertThat(cadre.get(0).get("approved").asInt()).isEqualTo(4);
-        assertThat(cadre.get(0).get("proposed").asInt()).isEqualTo(6);
+        JsonNode row = cadreRow(est, "IT", "ITO");
+        assertThat(row.get("approved").asInt()).isEqualTo(2);
+        assertThat(row.get("proposed").asInt()).isEqualTo(4);
 
-        // The submitter cannot approve; the DG (MANAGEMENT) can.
+        // The submitter cannot approve; a user without an approver role for this stage is refused.
         expectStatus(postJson(est, "/api/workflow/instances/" + instanceId + "/act", Map.of("decision", "APPROVE")), 422);
-        // A different user without an approver role for this stage is refused.
         String hr = login("hr", "Demo@12345");
         expectStatus(postJson(hr, "/api/workflow/instances/" + instanceId + "/act", Map.of("decision", "APPROVE")), 403);
-        String dg = login("dg", "Demo@12345");
-        JsonNode inbox = getJson(dg, "/api/workflow/inbox");
-        assertThat(inbox.findValuesAsText("entityType")).contains("EstablishmentChange");
-        expectStatus(postJson(dg, "/api/workflow/instances/" + instanceId + "/act", Map.of("decision", "APPROVE", "comment", "OK")), 200);
+        // Head of HR reviews, then the Commission gives final approval (spec 2.5).
+        String headHr = login("headhr", "Demo@12345");
+        assertThat(getJson(headHr, "/api/workflow/inbox").findValuesAsText("entityType")).contains("EstablishmentChange");
+        expectStatus(postJson(headHr, "/api/workflow/instances/" + instanceId + "/act", Map.of("decision", "APPROVE", "comment", "OK")), 200);
+        assertThat(cadreRow(est, "IT", "ITO").get("approved").asInt()).isEqualTo(2);
+        String commission = login("commission", "Demo@12345");
+        expectStatus(postJson(commission, "/api/workflow/instances/" + instanceId + "/act", Map.of("decision", "APPROVE")), 200);
 
-        JsonNode after = getJson(est, "/api/establishment/cadre?orgUnitCode=ICT");
-        assertThat(after.get(0).get("approved").asInt()).isEqualTo(6);
+        assertThat(cadreRow(est, "IT", "ITO").get("approved").asInt()).isEqualTo(4);
         assertThat(getJson(est, "/api/establishment/changes/" + changeId).get("status").asText()).isEqualTo("APPLIED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM org_position WHERE code LIKE 'IT/ITO/%' AND post_status = 'ACTIVE'", Integer.class))
+                .isEqualTo(4);
+    }
+
+    @Test
+    void cadreCannotFallBelowFilledWithoutExceptionAndDyingCadreCannotGrow() throws Exception {
+        String est = login("establishment", "Demo@12345");
+        Long ito = jdbc.queryForObject("SELECT id FROM designation WHERE code = 'ITO'", Long.class);
+        Long la = jdbc.queryForObject("SELECT id FROM designation WHERE code = 'LA'", Long.class);
+        // CIA-0014 holds an IT Officer post in IT: reducing IT/ITO to 0 is below filled.
+        MvcResult below = postJson(est, "/api/establishment/changes", Map.of("changeType", "CADRE_SET", "reason", "cut",
+                "payload", Map.of("designationId", ito, "orgUnitCode", "IT", "approvedQty", 0)));
+        expectStatus(below, 422);
+        assertThat(body(below).get("message").asText()).contains("allowed minimum is 1");
+        // Legal Assistant is a dying cadre: no increase.
+        MvcResult dying = postJson(est, "/api/establishment/changes", Map.of("changeType", "CADRE_SET", "reason", "more",
+                "payload", Map.of("designationId", la, "orgUnitCode", "LEGAL-HO", "approvedQty", 8)));
+        expectStatus(dying, 422);
+        // Draft then submit.
+        MvcResult draft = postJson(est, "/api/establishment/changes", Map.of("changeType", "CADRE_SET", "reason", "draft", "draft", true,
+                "payload", Map.of("designationId", la, "orgUnitCode", "LEGAL-HO", "approvedQty", 6)));
+        expectStatus(draft, 200);
+        assertThat(body(draft).get("status").asText()).isEqualTo("DRAFT");
+        assertThat(body(draft).get("workflowInstanceId").isNull()).isTrue();
+        MvcResult submitted = postJson(est, "/api/establishment/changes/" + body(draft).get("id").asLong() + "/submit", Map.of());
+        expectStatus(submitted, 200);
+        assertThat(body(submitted).get("status").asText()).isEqualTo("PENDING");
+    }
+
+    private JsonNode cadreRow(String token, String unit, String designationCode) throws Exception {
+        for (JsonNode r : getJson(token, "/api/establishment/cadre?orgUnitCode=" + unit))
+            if (r.get("orgUnitCode").asText().equals(unit) && designationCode.equals(r.get("designationCode").asText())) return r;
+        throw new AssertionError("No cadre row " + unit + "/" + designationCode);
     }
 
     @Test
     void orgUnitReorganizationKeepsHistory() throws Exception {
         String est = login("establishment", "Demo@12345");
-        String dg = login("dg", "Demo@12345");
         MvcResult s = postJson(est, "/api/establishment/changes", Map.of(
                 "changeType", "ORG_UNIT_UPDATE", "targetRef", "PREV", "effectiveDate", LocalDate.now().plusDays(1).toString(),
-                "reason", "Rename", "payload", Map.of("name", "Prevention and Education Division", "unitType", "DIVISION", "parentCode", "DG_OFFICE")));
+                "reason", "Rename", "payload", Map.of("name", "Prevention and Education Division", "unitType", "DEPARTMENT", "parentCode", "PREV_AL")));
         expectStatus(s, 200);
-        expectStatus(postJson(dg, "/api/workflow/instances/" + body(s).get("workflowInstanceId").asLong() + "/act",
-                Map.of("decision", "APPROVE")), 200);
+        long wi = body(s).get("workflowInstanceId").asLong();
+        expectStatus(postJson(login("headhr", "Demo@12345"), "/api/workflow/instances/" + wi + "/act", Map.of("decision", "APPROVE")), 200);
+        expectStatus(postJson(login("commission", "Demo@12345"), "/api/workflow/instances/" + wi + "/act", Map.of("decision", "APPROVE")), 200);
         JsonNode history = getJson(est, "/api/establishment/org-units/PREV/history");
         assertThat(history.size()).isEqualTo(2);
         JsonNode today = getJson(est, "/api/establishment/org-units");
-        assertThat(today.findValuesAsText("name")).contains("Prevention Division");
+        assertThat(today.findValuesAsText("name")).contains("Prevention");
         JsonNode tomorrow = getJson(est, "/api/establishment/org-units?asOf=" + LocalDate.now().plusDays(1));
         assertThat(tomorrow.findValuesAsText("name")).contains("Prevention and Education Division");
     }
@@ -129,7 +170,7 @@ class FoundationIntegrationTest extends IntegrationTestBase {
         String est = login("establishment", "Demo@12345");
         MvcResult s = postJson(est, "/api/establishment/changes", Map.of(
                 "changeType", "ORG_UNIT_UPDATE", "targetRef", "INV", "effectiveDate", LocalDate.now().toString(),
-                "reason", "Bad move", "payload", Map.of("name", "Investigation Division", "unitType", "DIVISION", "parentCode", "INV-OPS")));
+                "reason", "Bad move", "payload", Map.of("name", "Investigation Division", "unitType", "DIVISION", "parentCode", "INV-HO")));
         expectStatus(s, 422);
     }
 

@@ -5,11 +5,12 @@ import { Bell, KeyRound, LogOut, Menu, UserRound } from 'lucide-react';
 import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/api/client';
 import { modules } from '@/modules/registry';
-import { NAV_SECTIONS, NavItem } from '@/modules/types';
+import { NAV_SECTIONS, NavItem, resolveSection } from '@/modules/types';
+import { Wordmark } from '@/components/ui';
 
 const SECTION_FALLBACK: Record<string, string> = {
-  overview: 'Overview', self: 'My services', organization: 'Organization', people: 'People', time: 'Time & attendance',
-  compensation: 'Pay & benefits', talent: 'Talent', insight: 'Insight', administration: 'Administration',
+  overview: 'Overview', self: 'My services', establishment: 'Establishment', payBenefits: 'Pay & Benefits Setup',
+  recruitment: 'Recruitment', people: 'People', insight: 'Insight', administration: 'Administration',
 };
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -25,15 +26,15 @@ export function Layout({ children }: { children: ReactNode }) {
     <div className="app-shell">
       <aside className={`sidebar ${open ? 'open' : ''}`} aria-label="Main navigation">
         <Link to="/" className="sidebar-brand" style={{ textDecoration: 'none' }}>
-          <img src="/emblem.svg" alt="" />
+          <img src="/emblem.png" alt="" />
           <div>
-            <div className="t1">CIABOC</div>
+            <Wordmark className="t1" />
             <div className="t2">Human Resources</div>
           </div>
         </Link>
         <nav>
           {NAV_SECTIONS.map((s) => {
-            const inSection = items.filter((i) => i.section === s).sort((a, b) => a.order - b.order);
+            const inSection = items.filter((i) => resolveSection(i) === s).sort((a, b) => a.order - b.order);
             if (inSection.length === 0) return null;
             return (
               <div className="nav-section" key={s}>

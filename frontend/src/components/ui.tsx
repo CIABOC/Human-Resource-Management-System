@@ -2,6 +2,19 @@ import { ReactNode, useEffect, useId, useRef } from 'react';
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, Inbox, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+/* ------------------------------------------------------------------ brand */
+
+/** "CIABOC" wordmark with the red dot in place of the O. */
+export function Wordmark({ className = '', size }: { className?: string; size?: number }) {
+  return (
+    <span className={`wordmark ${className}`} style={size ? { fontSize: size } : undefined} role="img" aria-label="CIABOC">
+      <span aria-hidden>CIAB</span>
+      <span className="wordmark-o" aria-hidden />
+      <span aria-hidden>C</span>
+    </span>
+  );
+}
+
 /* ------------------------------------------------------------------ layout */
 
 export function PageHeader({ eyebrow, title, subtitle, actions }: { eyebrow?: string; title: string; subtitle?: ReactNode; actions?: ReactNode }) {

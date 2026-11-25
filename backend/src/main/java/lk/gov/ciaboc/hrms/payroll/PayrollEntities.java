@@ -17,7 +17,11 @@ public final class PayrollEntities {
 
     // ===================================================================== configuration
 
-    /** Effective-dated salary scale (FR-PAY-001). Step n pays initial + n x increment, n in [0, maxSteps]. */
+    /**
+     * Effective-dated salary scale identified by its salary code (FR-PAY-001, REQ 2.2). Step 0 is the initial step;
+     * each step adds the increment of its segment (segmented schedule "10x1200;12x1500", or a single increment),
+     * up to the maximum. {@code linkedGrades} lists the grades (comma separated) that use the scale.
+     */
     @Getter
     @Setter
     @Entity(name = "SalaryScale")
@@ -29,21 +33,51 @@ public final class PayrollEntities {
         private String name;
         @Column(length = 40)
         private String grade;
+        @Column(name = "linked_grades", length = 200)
+        private String linkedGrades;
         @Column(name = "initial_salary", nullable = false, precision = 14, scale = 2)
         private BigDecimal initialSalary;
         @Column(name = "increment_amount", nullable = false, precision = 14, scale = 2)
         private BigDecimal incrementAmount;
+        @Column(name = "increment_schedule", length = 500)
+        private String incrementSchedule;
         @Column(name = "max_steps", nullable = false)
         private int maxSteps;
         @Column(name = "effective_from", nullable = false)
         private LocalDate effectiveFrom;
         @Column(name = "effective_to")
         private LocalDate effectiveTo;
+        @Column(name = "to_be_confirmed", nullable = false)
+        private boolean toBeConfirmed;
+        @Column(name = "authority_ref", length = 200)
+        private String authorityRef;
         @Column(length = 1000)
         private String notes;
 
+        /** Increment segments: [count, amount] pairs. */
+        public java.util.List<BigDecimal[]> segments() {
+            java.util.List<BigDecimal[]> out = new java.util.ArrayList<>();
+            if (incrementSchedule == null || incrementSchedule.isBlank()) {
+                out.add(new BigDecimal[]{BigDecimal.valueOf(maxSteps), incrementAmount == null ? BigDecimal.ZERO : incrementAmount});
+                return out;
+            }
+            for (String part : incrementSchedule.split(";")) {
+                String[] p = part.trim().toLowerCase().split("x");
+                out.add(new BigDecimal[]{new BigDecimal(p[0].trim()), new BigDecimal(p[1].trim())});
+            }
+            return out;
+        }
+
         public BigDecimal salaryAtStep(int step) {
-            return initialSalary.add(incrementAmount.multiply(BigDecimal.valueOf(step)));
+            BigDecimal salary = initialSalary;
+            int remaining = step;
+            for (BigDecimal[] seg : segments()) {
+                if (remaining <= 0) break;
+                int n = Math.min(remaining, seg[0].intValue());
+                salary = salary.add(seg[1].multiply(BigDecimal.valueOf(n)));
+                remaining -= n;
+            }
+            return salary;
         }
 
         public BigDecimal getMaxSalary() {
@@ -93,12 +127,38 @@ public final class PayrollEntities {
         private String notes;
     }
 
+    /**
+     * Scheme master record (REQ 4.1): deduction, contribution or benefit scheme. Its terms (basis, rates, payer,
+     * components, authority, effective date) are versioned in {@link DeductionRate}; every change is approved
+     * (SCHEME_CHANGE) and logged in {@link SchemeChange}.
+     */
     @Getter
     @Setter
     @Entity(name = "DeductionType")
     @Table(name = "pay_deduction_type")
     public static class DeductionType extends BaseEntity {
         public enum Category {STATUTORY, SCHEME, OTHER}
+
+        public enum Kind {DEDUCTION, CONTRIBUTION, BENEFIT}
+
+        public enum Family {PENSION, WNOP, EPF, ETF, WELFARE, INSURANCE, OTHER}
+
+        /** Who receives the scheme by default (REQ 4.2). */
+        public enum Eligibility {ALL_EMPLOYEES, PENSIONABLE, NON_PENSIONABLE, OPTIONAL}
+
+        @Enumerated(EnumType.STRING)
+        @Column(nullable = false, length = 20)
+        private Kind kind = Kind.DEDUCTION;
+        @Enumerated(EnumType.STRING)
+        @Column(name = "scheme_family", nullable = false, length = 20)
+        private Family schemeFamily = Family.OTHER;
+        @Enumerated(EnumType.STRING)
+        @Column(name = "default_eligibility", nullable = false, length = 20)
+        private Eligibility defaultEligibility = Eligibility.OPTIONAL;
+        @Column(name = "gl_code", length = 40)
+        private String glCode;
+        @Column(name = "employer_gl_code", length = 40)
+        private String employerGlCode;
 
         @Column(nullable = false, unique = true, length = 40)
         private String code;

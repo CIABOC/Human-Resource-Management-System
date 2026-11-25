@@ -10,6 +10,7 @@ public enum Permission {
 
     EST_VIEW("View organizational structure, designations, positions and cadre"),
     EST_MANAGE("Submit establishment and cadre changes"),
+    EST_CADRE_EXCEPTION("Authorise cadre reductions below filled + acting posts"),
     LEGAL_VIEW("View legal documents and provisions"),
     LEGAL_MANAGE("Maintain legal documents, provisions and amendments"),
 
@@ -20,6 +21,8 @@ public enum Permission {
 
     REC_VIEW("View recruitment"),
     REC_MANAGE("Manage vacancies, applicants, examinations, interviews and appointments"),
+    SOR_MANAGE("Prepare Schemes of Recruitment (SOR) and examination correspondence"),
+    SOR_PUBLISH("Publish approved SORs and vacancies (Publisher role only)"),
 
     LEAVE_VIEW("View leave of others within data scope"),
     LEAVE_MANAGE("Manage leave balances and records"),

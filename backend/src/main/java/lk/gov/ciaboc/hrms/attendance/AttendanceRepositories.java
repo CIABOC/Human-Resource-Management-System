@@ -19,21 +19,37 @@ interface PublicHolidayRepository extends JpaRepository<PublicHoliday, Long> {
     boolean existsByHolidayDate(LocalDate date);
 }
 
-interface WorkScheduleRepository extends JpaRepository<WorkSchedule, Long> {
-    @Query("select s from WorkSchedule s where s.effectiveFrom <= :d and (s.effectiveTo is null or s.effectiveTo > :d) order by s.code")
-    List<WorkSchedule> effectiveOn(@Param("d") LocalDate date);
+interface DutyPolicyRepository extends JpaRepository<DutyPolicy, Long> {
+    @Query("select p from DutyPolicy p where p.status = 'APPROVED' and p.effectiveFrom <= :d and (p.effectiveTo is null or p.effectiveTo > :d) order by p.code")
+    List<DutyPolicy> approvedOn(@Param("d") LocalDate date);
 
-    @Query("select s from WorkSchedule s where s.code = :code and s.effectiveFrom <= :d and (s.effectiveTo is null or s.effectiveTo > :d)")
-    Optional<WorkSchedule> effectiveOn(@Param("code") String code, @Param("d") LocalDate date);
+    @Query("select p from DutyPolicy p where p.code = :code and p.status = 'APPROVED' and p.effectiveFrom <= :d and (p.effectiveTo is null or p.effectiveTo > :d)")
+    Optional<DutyPolicy> approvedOn(@Param("code") String code, @Param("d") LocalDate date);
 
-    List<WorkSchedule> findByCodeOrderByEffectiveFromDesc(String code);
+    @Query("select p from DutyPolicy p where p.status = 'APPROVED' order by p.code, p.effectiveFrom desc")
+    List<DutyPolicy> allApproved();
+
+    @Query("select p from DutyPolicy p where p.code = :code and p.status = 'APPROVED' order by p.effectiveFrom desc")
+    List<DutyPolicy> approvedHistory(@Param("code") String code);
 
     boolean existsByCode(String code);
 
-    @Query("select count(s) from WorkSchedule s where s.code = :code and s.effectiveFrom > :d")
-    long countStartingAfter(@Param("code") String code, @Param("d") LocalDate date);
+    @Query("select coalesce(max(p.versionNo), 0) from DutyPolicy p where p.code = :code")
+    int maxVersionNo(@Param("code") String code);
 
-    @Query("select count(s) from WorkSchedule s where s.employeeCategory = :cat and (s.effectiveTo is null or s.effectiveTo > CURRENT_DATE)")
+    @Query("select count(p) from DutyPolicy p where p.code = :code and p.status = 'APPROVED' and p.effectiveFrom > :d")
+    long countStartingAfter(@Param("code") String code, @Param("d") LocalDate date);
+}
+
+interface DutyPolicyAssignmentRepository extends JpaRepository<DutyPolicyAssignment, Long> {
+    @Query("select a from DutyPolicyAssignment a where a.effectiveFrom <= :d and (a.effectiveTo is null or a.effectiveTo > :d)")
+    List<DutyPolicyAssignment> effectiveOn(@Param("d") LocalDate date);
+
+    /** Group-level (non-employee) assignments of a code, newest first. */
+    @Query("select a from DutyPolicyAssignment a where a.policyCode = :code and a.scopeType <> 'EMPLOYEE' order by a.effectiveFrom desc")
+    List<DutyPolicyAssignment> groupAssignments(@Param("code") String code);
+
+    @Query("select count(a) from DutyPolicyAssignment a where a.employeeCategory = :cat and (a.effectiveTo is null or a.effectiveTo > CURRENT_DATE)")
     long countCurrentByCategory(@Param("cat") String category);
 }
 

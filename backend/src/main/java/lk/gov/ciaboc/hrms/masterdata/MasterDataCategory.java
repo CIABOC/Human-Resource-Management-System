@@ -20,7 +20,8 @@ public enum MasterDataCategory {
     INSURANCE_CATEGORY("Insurance category"),
     LEGAL_TOPIC("Legal provision topic"),
     SEPARATION_REASON("Separation reason"),
-    RELATIONSHIP("Relationship");
+    RELATIONSHIP("Relationship"),
+    LOCATION("Location (Head Office / Regional)");
 
     private final String label;
 

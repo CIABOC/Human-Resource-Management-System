@@ -22,6 +22,24 @@ public interface EmployeeAssignmentRepository extends JpaRepository<EmployeeAssi
             "and (a.effectiveTo is null or a.effectiveTo > :d) group by a.designationId, a.orgUnitCode")
     List<Object[]> occupancy(@Param("d") LocalDate date);
 
+    @Query("select a from EmployeeAssignment a where a.positionId in :posts and a.effectiveFrom <= :d " +
+            "and (a.effectiveTo is null or a.effectiveTo > :d)")
+    List<EmployeeAssignment> findByPositionIdInEffectiveOn(@Param("posts") java.util.Collection<Long> positionIds, @Param("d") LocalDate date);
+
+    @Query("select a from EmployeeAssignment a where a.orgUnitCode = :unit and a.effectiveFrom <= :d " +
+            "and (a.effectiveTo is null or a.effectiveTo > :d)")
+    List<EmployeeAssignment> inUnitOn(@Param("unit") String orgUnitCode, @Param("d") LocalDate date);
+
+    /** Holders of a designation in a unit on a date, split by acting: rows of [acting, count]. */
+    @Query("select a.acting, count(a) from EmployeeAssignment a where a.designationId = :des and a.orgUnitCode = :unit " +
+            "and a.effectiveFrom <= :d and (a.effectiveTo is null or a.effectiveTo > :d) group by a.acting")
+    List<Object[]> occupancySplit(@Param("des") Long designationId, @Param("unit") String orgUnitCode, @Param("d") LocalDate date);
+
+    /** Occupancy as at a date with the acting split: rows of [designationId, orgUnitCode, acting, count]. */
+    @Query("select a.designationId, a.orgUnitCode, a.acting, count(a) from EmployeeAssignment a where a.effectiveFrom <= :d " +
+            "and (a.effectiveTo is null or a.effectiveTo > :d) group by a.designationId, a.orgUnitCode, a.acting")
+    List<Object[]> occupancyWithActing(@Param("d") LocalDate date);
+
     @Query("select count(a) from EmployeeAssignment a where a.orgUnitCode = :unit and a.effectiveFrom <= :d " +
             "and (a.effectiveTo is null or a.effectiveTo > :d)")
     long countInUnitOn(@Param("unit") String orgUnitCode, @Param("d") LocalDate date);

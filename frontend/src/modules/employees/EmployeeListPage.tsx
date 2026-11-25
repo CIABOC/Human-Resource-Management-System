@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Download, Search, UserPlus } from 'lucide-react';
 import { download } from '@/api/client';
@@ -18,7 +18,8 @@ export default function EmployeeListPage() {
   const { can } = useAuth();
   const [q, setQ] = useState('');
   const [debounced, setDebounced] = useState('');
-  const [f, setF] = useState({ orgUnitCode: '', designationId: '', status: '', category: '' });
+  const [params] = useSearchParams();
+  const [f, setF] = useState({ orgUnitCode: params.get('orgUnitCode') ?? '', designationId: params.get('designationId') ?? '', status: params.get('status') ?? '', category: '' });
   const [page, setPage] = useState(0);
   useEffect(() => {
     const id = setTimeout(() => { setDebounced(q); setPage(0); }, 350);

@@ -53,6 +53,8 @@ export default function StructurePage() {
               { key: 'name', header: 'Name', render: (u) => <div><div style={{ fontWeight: 600 }}>{u.name}</div><div className="faint" style={{ fontSize: 12 }}>{[u.nameSi, u.nameTa].filter(Boolean).join(' · ')}</div></div> },
               { key: 'unitType', header: 'Type', render: (u) => u.unitType.replace('_', '-').toLowerCase() },
               { key: 'parentCode', header: 'Parent', render: (u) => (u.parentCode ? unitName.get(u.parentCode) ?? u.parentCode : '—') },
+              { key: 'headTitle', header: 'Head', render: (u) => (u.headTitle ? <div><div>{u.headTitle}</div>{u.headPositionCode && <div className="faint mono" style={{ fontSize: 11.5 }}>{u.headPositionCode}</div>}</div> : '—') },
+              { key: 'location', header: 'Location', render: (u) => u.location ?? '—' },
               { key: 'effectiveFrom', header: 'Since', render: (u) => fmtDate(u.effectiveFrom) },
               { key: 'a', header: '', render: (u) => (
                 <div className="row" style={{ gap: 2 }}>
@@ -72,8 +74,17 @@ export default function StructurePage() {
           <Card pad={false}>
             <DataTable<Designation> rows={designations.data} loading={designations.loading} columns={[
               { key: 'code', header: 'Code', render: (d) => <span className="mono">{d.code}</span> },
-              { key: 'name', header: 'Designation', render: (d) => <strong>{d.name}</strong> },
+              { key: 'name', header: 'Designation', render: (d) => (
+                <div>
+                  <strong>{d.name}</strong>
+                  {d.dyingCadre && <span className="cat-tag" style={{ marginLeft: 6 }} title="No new posts; existing holders retained">dying cadre</span>}
+                  {d.statutory && <span className="cat-tag gold" style={{ marginLeft: 6 }}>statutory</span>}
+                  {d.statutory && d.legalBasis && <div className="faint" style={{ fontSize: 11.5 }}>{d.legalBasis}</div>}
+                </div>
+              ) },
+              { key: 'level', header: 'Level', align: 'right', render: (d) => d.level ?? '—' },
               { key: 'grade', header: 'Grade', render: (d) => grade(d.grade) },
+              { key: 'salaryCode', header: 'Salary code', render: (d) => (d.salaryCode ? <span className="mono">{d.salaryCode}</span> : '—') },
               { key: 'serviceCategory', header: 'Service category' },
               { key: 'active', header: 'Status', render: (d) => <StatusBadge status={d.active ? 'ACTIVE' : 'INACTIVE'} /> },
               { key: 'a', header: '', render: (d) => d.active && (
@@ -97,7 +108,7 @@ export default function StructurePage() {
               { key: 'designationId', header: 'Designation', render: (p) => desName.get(p.designationId) ?? p.designationId },
               { key: 'orgUnitCode', header: 'Unit', render: (p) => unitName.get(p.orgUnitCode) ?? p.orgUnitCode },
               { key: 'reportsToPositionCode', header: 'Reports to' },
-              { key: 'active', header: 'Status', render: (p) => <StatusBadge status={p.active ? 'ACTIVE' : 'INACTIVE'} /> },
+              { key: 'active', header: 'Status', render: (p) => <StatusBadge status={!p.active ? 'INACTIVE' : p.postStatus && p.postStatus !== 'ACTIVE' ? p.postStatus : 'ACTIVE'} /> },
               { key: 'a', header: '', render: (p) => p.active && (
                 <div className="row" style={{ gap: 2 }}>
                   {action({ type: 'POSITION_UPDATE', position: p }, 'Propose change', Pencil)}

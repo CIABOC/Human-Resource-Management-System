@@ -22,7 +22,7 @@ public class AttendanceReports implements ReportProvider {
     public List<ReportDefinition> reports() {
         return List.of(
                 ReportDefinition.builder("ATT_DAILY", CAT, "Daily attendance")
-                        .description("Processed attendance for the 'as of' date. Status: PRESENT, LATE, EARLY, ABSENT, ON_LEAVE, HOLIDAY, WEEKEND, NO_SCHEDULE")
+                        .description("Processed attendance for the 'as of' date. Status: PRESENT, LATE, EARLY, ABSENT, ON_LEAVE, HOLIDAY, WEEKEND, NO_POLICY")
                         .permission("ATT_VIEW").filters(Filter.AS_OF, Filter.ORG_UNIT, Filter.STATUS)
                         .col("employee_no", "Employee no").col("employee", "Employee").col("org_unit_code", "Unit")
                         .col("status", "Status").col("check_in", "Check-in", "datetime").col("check_out", "Check-out", "datetime")

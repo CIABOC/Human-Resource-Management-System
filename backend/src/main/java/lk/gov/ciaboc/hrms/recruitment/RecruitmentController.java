@@ -43,9 +43,20 @@ public class RecruitmentController {
     // ------------------------------------------------------------------ vacancies
 
     @GetMapping("/vacancies")
-    @PreAuthorize("hasAuthority('REC_VIEW')")
-    public List<RecruitmentService.VacancyView> vacancies(@RequestParam(required = false) String status) {
-        return service.listVacancies(status);
+    @PreAuthorize("hasAnyAuthority('REC_VIEW','EST_VIEW')")
+    public List<RecruitmentService.VacancyView> vacancies(@RequestParam(required = false) String status,
+                                                          @RequestParam(required = false) String triggerCode,
+                                                          @RequestParam(required = false) String orgUnitCode) {
+        return service.listVacancies(status, triggerCode, orgUnitCode);
+    }
+
+    public record SorLinkRequest(Long sorId) {
+    }
+
+    @PutMapping("/vacancies/{id}/sor")
+    @PreAuthorize("hasAnyAuthority('REC_MANAGE','SOR_MANAGE')")
+    public RecruitmentService.VacancyView linkSor(@PathVariable Long id, @RequestBody SorLinkRequest r) {
+        return service.linkSor(id, r.sorId());
     }
 
     @GetMapping("/vacancies/suggestions")
@@ -55,7 +66,7 @@ public class RecruitmentController {
     }
 
     @GetMapping("/vacancies/{id}")
-    @PreAuthorize("hasAuthority('REC_VIEW')")
+    @PreAuthorize("hasAnyAuthority('REC_VIEW','EST_VIEW','SOR_PUBLISH')")
     public RecruitmentService.VacancyView vacancy(@PathVariable Long id) {
         return service.vacancyView(id);
     }

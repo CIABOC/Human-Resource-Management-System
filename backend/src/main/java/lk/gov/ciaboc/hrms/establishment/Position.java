@@ -38,4 +38,12 @@ public class Position extends BaseEntity {
 
     @Column(name = "deactivated_on")
     private LocalDate deactivatedOn;
+
+    /** ACTIVE, FROZEN (vacant post removed from cadre), TO_BE_ABOLISHED (filled excess; abolished on vacation), ABOLISHED. */
+    @Column(name = "post_status", nullable = false, length = 20)
+    private String postStatus = "ACTIVE";
+
+    /** Cadre change that created or froze this post. */
+    @Column(name = "change_id")
+    private Long changeId;
 }

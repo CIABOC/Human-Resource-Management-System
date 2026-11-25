@@ -14,7 +14,7 @@ import java.time.LocalDate;
 @Entity
 @Table(name = "attendance_daily")
 public class AttendanceDaily extends BaseEntity {
-    public enum Status {PRESENT, LATE, EARLY, ABSENT, ON_LEAVE, HOLIDAY, WEEKEND, NO_SCHEDULE}
+    public enum Status {PRESENT, LATE, EARLY, ABSENT, ON_LEAVE, HOLIDAY, WEEKEND, NO_POLICY}
 
     @Column(name = "employee_id", nullable = false)
     private Long employeeId;
@@ -22,8 +22,8 @@ public class AttendanceDaily extends BaseEntity {
     @Column(name = "work_date", nullable = false)
     private LocalDate workDate;
 
-    @Column(name = "schedule_id")
-    private Long scheduleId;
+    @Column(name = "policy_id")
+    private Long policyId;
 
     @Column(name = "check_in")
     private Instant checkIn;

@@ -7,6 +7,7 @@ import lk.gov.ciaboc.hrms.audit.AuditAction;
 import lk.gov.ciaboc.hrms.audit.AuditService;
 import lk.gov.ciaboc.hrms.common.ApiException;
 import lk.gov.ciaboc.hrms.common.PageResponse;
+import lk.gov.ciaboc.hrms.common.contracts.EstablishmentEvents;
 import lk.gov.ciaboc.hrms.establishment.*;
 import lk.gov.ciaboc.hrms.files.FileStorageService;
 import lk.gov.ciaboc.hrms.files.StoredFile;
@@ -70,6 +71,7 @@ public class EmployeeService implements WorkflowHandler {
     private final AppUserRepository users;
     private final WorkflowService workflow;
     private final AuditService audit;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     // ===================================================================== DTOs
 
@@ -270,11 +272,17 @@ public class EmployeeService implements WorkflowHandler {
     /** Moves an employee to a new unit/designation/position from a date, closing the previous placement (FR-EMP-005). */
     @Transactional
     public EmployeeAssignment assign(Long id, AssignRequest r) {
+        return assign(id, r, false);
+    }
+
+    /** As {@link #assign(Long, AssignRequest)}; {@code acting} marks an acting appointment (counts as Acting in cadre). */
+    @Transactional
+    public EmployeeAssignment assign(Long id, AssignRequest r, boolean acting) {
         Employee e = lookup.requireAccess(id);
         if (SEPARATION_STATUSES.contains(e.getStatus())) throw ApiException.rule("SEPARATED", "Employee is no longer in service");
         require(r.reason(), "Reason");
         LocalDate d = r.effectiveDate() == null ? LocalDate.now() : r.effectiveDate();
-        EmployeeAssignment a = placement(e, r.orgUnitCode(), r.designationId(), r.positionId(), d, r.reason(), r.reference(), r.remarks());
+        EmployeeAssignment a = placement(e, r.orgUnitCode(), r.designationId(), r.positionId(), d, r.reason(), r.reference(), r.remarks(), acting);
         String type = switch (r.reason()) {
             case "PROMOTION", "TRANSFER", "SECONDMENT", "CONFIRMATION" -> r.reason();
             default -> "OTHER";
@@ -287,6 +295,11 @@ public class EmployeeService implements WorkflowHandler {
 
     EmployeeAssignment placement(Employee e, String unitCode, Long designationId, Long positionId, LocalDate d,
                                  String reason, String reference, String remarks) {
+        return placement(e, unitCode, designationId, positionId, d, reason, reference, remarks, false);
+    }
+
+    EmployeeAssignment placement(Employee e, String unitCode, Long designationId, Long positionId, LocalDate d,
+                                 String reason, String reference, String remarks, boolean acting) {
         establishment.orgUnit(unitCode, d).orElseThrow(() -> ApiException.rule("INVALID_REFERENCE", "Org unit " + unitCode + " is not active on " + d));
         Designation des = designations.findById(designationId).filter(Designation::isActive)
                 .orElseThrow(() -> ApiException.rule("INVALID_REFERENCE", "Designation is not active"));
@@ -299,11 +312,13 @@ public class EmployeeService implements WorkflowHandler {
                     .filter(a -> positionId.equals(a.getPositionId()) && !a.getEmployeeId().equals(e.getId()) && a.isEffectiveOn(d))
                     .findAny().ifPresent(a -> { throw ApiException.rule("POSITION_FILLED", "Position " + p.getCode() + " is already filled"); });
         }
-        assignments.findFirstByEmployeeIdAndEffectiveToIsNullOrderByEffectiveFromDesc(e.getId()).ifPresent(cur -> {
-            if (!d.isAfter(cur.getEffectiveFrom())) throw ApiException.rule("EFFECTIVE_DATE", "Effective date must be after the current placement start (" + cur.getEffectiveFrom() + ")");
-            cur.setEffectiveTo(d);
-        });
+        EmployeeAssignment previous = assignments.findFirstByEmployeeIdAndEffectiveToIsNullOrderByEffectiveFromDesc(e.getId()).orElse(null);
+        if (previous != null) {
+            if (!d.isAfter(previous.getEffectiveFrom())) throw ApiException.rule("EFFECTIVE_DATE", "Effective date must be after the current placement start (" + previous.getEffectiveFrom() + ")");
+            previous.setEffectiveTo(d);
+        }
         EmployeeAssignment a = new EmployeeAssignment();
+        a.setActing(acting);
         a.setEmployeeId(e.getId());
         a.setOrgUnitCode(unitCode);
         a.setDesignationId(des.getId());
@@ -317,6 +332,10 @@ public class EmployeeService implements WorkflowHandler {
             e.setOrgUnitCode(unitCode);
             e.setDesignationId(des.getId());
             e.setPositionId(positionId);
+        }
+        if (previous != null) {
+            eventPublisher.publishEvent(new EstablishmentEvents.EmployeePlacementChanged(e.getId(), reason, d, previous.getOrgUnitCode(),
+                    previous.getDesignationId(), previous.getPositionId(), unitCode, des.getId(), positionId, acting));
         }
         return a;
     }
@@ -339,6 +358,8 @@ public class EmployeeService implements WorkflowHandler {
                 if (!d.isAfter(a.getEffectiveFrom())) throw ApiException.rule("EFFECTIVE_DATE", "Separation date must be after the current placement start");
                 a.setEffectiveTo(d);
             });
+            eventPublisher.publishEvent(new EstablishmentEvents.EmployeeSeparated(id, r.status(), r.separationReason(), d,
+                    e.getOrgUnitCode(), e.getDesignationId(), e.getPositionId()));
             e.setPositionId(null);
             users.findByEmployeeId(id).ifPresent(u -> u.setActive(false)); // joiner-mover-leaver: remove access
             event(id, "SEPARATION", d, "Separated: " + r.status() + (r.remarks() == null ? "" : " — " + r.remarks()), null);

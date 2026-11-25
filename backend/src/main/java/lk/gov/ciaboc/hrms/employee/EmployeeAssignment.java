@@ -43,4 +43,8 @@ public class EmployeeAssignment extends BaseEntity implements EffectiveDated {
 
     @Column(length = 1000)
     private String remarks;
+
+    /** Acting appointment: counts as "Acting" rather than "Filled" in cadre figures. */
+    @Column(nullable = false)
+    private boolean acting;
 }

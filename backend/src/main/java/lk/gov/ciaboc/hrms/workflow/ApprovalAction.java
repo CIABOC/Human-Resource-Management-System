@@ -12,7 +12,8 @@ import java.time.Instant;
 @Entity
 @Table(name = "approval_action")
 public class ApprovalAction {
-    public enum Type {SUBMIT, APPROVE, REJECT, RETURN, RESUBMIT, CANCEL, ESCALATE}
+    /** VERIFY / RECORD are the positive actions of VERIFY and RECORD stages; MIGRATE = moved to another version by an administrator. */
+    public enum Type {SUBMIT, APPROVE, REJECT, RETURN, RESUBMIT, CANCEL, ESCALATE, VERIFY, RECORD, MIGRATE}
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -49,4 +50,20 @@ public class ApprovalAction {
 
     @Column(name = "acted_at", nullable = false)
     private Instant actedAt;
+
+    // ---- audit detail (REQ 10.8)
+
+    @Column(name = "step_id")
+    private Long stepId;
+
+    /** Action type of the stage at which the action was taken (APPROVE / VERIFY / RECORD). */
+    @Column(name = "stage_action_type", length = 20)
+    private String stageActionType;
+
+    /** Approver slot the actor acted for, e.g. "Post INV/DIR/001 (Director)". */
+    @Column(name = "slot_label", length = 250)
+    private String slotLabel;
+
+    @Column(name = "workflow_version_no")
+    private Integer workflowVersionNo;
 }

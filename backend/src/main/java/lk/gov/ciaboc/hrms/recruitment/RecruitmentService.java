@@ -3,16 +3,24 @@ package lk.gov.ciaboc.hrms.recruitment;
 import lk.gov.ciaboc.hrms.audit.AuditAction;
 import lk.gov.ciaboc.hrms.audit.AuditService;
 import lk.gov.ciaboc.hrms.common.ApiException;
+import lk.gov.ciaboc.hrms.employee.EmployeeLookup;
 import lk.gov.ciaboc.hrms.establishment.Designation;
 import lk.gov.ciaboc.hrms.establishment.DesignationRepository;
 import lk.gov.ciaboc.hrms.establishment.EstablishmentService;
 import lk.gov.ciaboc.hrms.establishment.OrgUnit;
+import lk.gov.ciaboc.hrms.establishment.Position;
+import lk.gov.ciaboc.hrms.establishment.PositionRepository;
 import lk.gov.ciaboc.hrms.files.FileStorageService;
 import lk.gov.ciaboc.hrms.files.StoredFile;
 import lk.gov.ciaboc.hrms.masterdata.MasterDataCategory;
 import lk.gov.ciaboc.hrms.masterdata.MasterDataService;
 import lk.gov.ciaboc.hrms.masterdata.SettingsService;
 import lk.gov.ciaboc.hrms.recruitment.RecruitmentEntities.*;
+import lk.gov.ciaboc.hrms.recruitment.sor.SorEntities.Sor;
+import lk.gov.ciaboc.hrms.recruitment.sor.SorEntities.SorStatus;
+import lk.gov.ciaboc.hrms.recruitment.sor.SorRepository;
+import lk.gov.ciaboc.hrms.recruitment.vacancy.TriggerConfigRepository;
+import lk.gov.ciaboc.hrms.recruitment.vacancy.VacancyEntities.TriggerConfig;
 import lk.gov.ciaboc.hrms.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,13 +36,18 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * Vacancies, announcements, applicants, examinations and interviews (FR-REC-001..006). Selection and appointment are
- * in {@link SelectionService}; correspondence in {@link CorrespondenceService}.
+ * Vacancy register, announcements, applicants, examinations and interviews (FR-REC-001..006, spec v2.1 REQ 5).
+ * Automatic vacancies and alerts are in {@code recruitment.vacancy}; SORs in {@code recruitment.sor}; publishing in
+ * {@code recruitment.publish}. Selection and appointment are in {@link SelectionService}; correspondence in
+ * {@link CorrespondenceService}.
  */
 @Service
 @RequiredArgsConstructor
 public class RecruitmentService {
-    static final Set<VacancyStatus> ACTIVE_VACANCY = EnumSet.of(VacancyStatus.DRAFT, VacancyStatus.OPEN, VacancyStatus.CLOSED);
+    /** Vacant posts under (or awaiting) recruitment: counted against the vacant cadre. */
+    public static final Set<VacancyStatus> ACTIVE_VACANCY = EnumSet.of(VacancyStatus.OPEN, VacancyStatus.ADVERTISED, VacancyStatus.CLOSED);
+    /** Vacancies that are not yet filled, frozen or cancelled (alerts run for FORECAST and OPEN only). */
+    public static final Set<VacancyStatus> LIVE_VACANCY = EnumSet.of(VacancyStatus.FORECAST, VacancyStatus.OPEN, VacancyStatus.ADVERTISED, VacancyStatus.CLOSED);
     private static final Pattern NIC = Pattern.compile("^(\\d{9}[VX]|\\d{12})$");
     private static final Pattern REF = Pattern.compile("^[A-Za-z0-9/_-]{1,40}$");
     private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
@@ -46,6 +59,17 @@ public class RecruitmentService {
             ApplicantStatus.REJECTED, EnumSet.of(ApplicantStatus.RECEIVED),
             ApplicantStatus.SELECTED, EnumSet.of(ApplicantStatus.WITHDRAWN));
 
+    /**
+     * Manual vacancy status changes (REQ 5.4). ADVERTISED is reached only through publishing with an approved SOR
+     * (REQ 5.5); FILLED only through appointment or placement (REQ 5.7).
+     */
+    private static final Map<VacancyStatus, Set<VacancyStatus>> VACANCY_TRANSITIONS = Map.of(
+            VacancyStatus.FORECAST, EnumSet.of(VacancyStatus.OPEN, VacancyStatus.FROZEN, VacancyStatus.CANCELLED),
+            VacancyStatus.OPEN, EnumSet.of(VacancyStatus.FROZEN, VacancyStatus.CANCELLED),
+            VacancyStatus.ADVERTISED, EnumSet.of(VacancyStatus.CLOSED),
+            VacancyStatus.CLOSED, EnumSet.of(VacancyStatus.ADVERTISED, VacancyStatus.OPEN, VacancyStatus.CANCELLED),
+            VacancyStatus.FROZEN, EnumSet.of(VacancyStatus.OPEN, VacancyStatus.CANCELLED));
+
     private final VacancyRepository vacancies;
     private final AnnouncementRepository announcements;
     private final ApplicantRepository applicants;
@@ -56,23 +80,32 @@ public class RecruitmentService {
     private final InterviewRepository interviews;
     private final EstablishmentService establishment;
     private final DesignationRepository designations;
+    private final PositionRepository positions;
+    private final EmployeeLookup employeeLookup;
+    private final SorRepository sors;
+    private final TriggerConfigRepository triggers;
     private final MasterDataService masterData;
     private final SettingsService settings;
     private final FileStorageService files;
     private final AuditService audit;
 
-    // ===================================================================== vacancies (FR-REC-001, -002)
+    // ===================================================================== vacancies (FR-REC-001, -002, REQ 5.4)
 
     public record VacancyRequest(String referenceNo, String title, Long designationId, String orgUnitCode, Integer numPosts,
                                  LocalDate openingDate, LocalDate closingDate, String description, String requirements,
-                                 BigDecimal examWeight, BigDecimal interviewWeight) {
+                                 BigDecimal examWeight, BigDecimal interviewWeight, LocalDate expectedDate, Long positionId,
+                                 Long sorId) {
     }
 
     public record VacancyView(Long id, String referenceNo, String title, Long designationId, String designationName,
-                              String orgUnitCode, String orgUnitName, int numPosts, String status, LocalDate openingDate,
-                              LocalDate closingDate, String description, String requirements, BigDecimal examWeight,
-                              BigDecimal interviewWeight, Map<String, Long> applicantsByStatus, long applicants,
-                              long appointed, Instant createdAt, String createdBy) {
+                              String grade, String orgUnitCode, String orgUnitName, Long positionId, String positionCode,
+                              int numPosts, String status, String triggerCode, String triggerName, String source,
+                              LocalDate expectedDate, LocalDate openingDate, LocalDate closingDate, String description,
+                              String requirements, BigDecimal examWeight, BigDecimal interviewWeight, Long sorId,
+                              String sorRef, String sorStatus, Long vacatedByEmployeeId, String vacatedByEmployeeNo,
+                              Long cadreChangeId, int filledPosts, LocalDate filledOn, String statusReason,
+                              boolean dyingCadre, Map<String, Long> applicantsByStatus, long applicants, long appointed,
+                              Instant createdAt, String createdBy) {
     }
 
     public record VacancySuggestion(Long designationId, String designationName, String grade, String orgUnitCode,
@@ -80,17 +113,17 @@ public class RecruitmentService {
                                     long suggestedPosts) {
     }
 
-    /** Vacant cadre (approved minus occupied) less posts already being recruited for (FR-REC-001). */
+    /** Vacant cadre (approved minus occupied) less posts already being recruited for (FR-REC-001). Dying cadres excluded. */
     @Transactional(readOnly = true)
     public List<VacancySuggestion> suggestions() {
         Map<String, Long> inRecruitment = new HashMap<>();
         for (Vacancy v : vacancies.findByStatusIn(ACTIVE_VACANCY)) {
-            long remaining = v.getNumPosts() - applicants.countByVacancyIdAndStatus(v.getId(), ApplicantStatus.APPOINTED);
-            inRecruitment.merge(v.getDesignationId() + "|" + v.getOrgUnitCode(), Math.max(0, remaining), Long::sum);
+            inRecruitment.merge(v.getDesignationId() + "|" + v.getOrgUnitCode(), remainingPosts(v), Long::sum);
         }
+        Set<Long> dying = designations.findAll().stream().filter(Designation::isDyingCadre).map(Designation::getId).collect(Collectors.toSet());
         List<VacancySuggestion> out = new ArrayList<>();
         for (EstablishmentService.CadreRow r : establishment.cadreSummary(LocalDate.now(), null)) {
-            if (r.vacant() <= 0) continue;
+            if (r.vacant() <= 0 || dying.contains(r.designationId())) continue;
             long under = inRecruitment.getOrDefault(r.designationId() + "|" + r.orgUnitCode(), 0L);
             out.add(new VacancySuggestion(r.designationId(), r.designationName(), r.grade(), r.orgUnitCode(), r.orgUnitName(),
                     r.approved(), r.occupied(), r.vacant(), under, Math.max(0, r.vacant() - under)));
@@ -99,9 +132,16 @@ public class RecruitmentService {
     }
 
     @Transactional(readOnly = true)
-    public List<VacancyView> listVacancies(String status) {
-        VacancyStatus s = parse(VacancyStatus.class, status, "vacancy status");
-        return vacancies.findAllByOrderByIdDesc().stream().filter(v -> s == null || v.getStatus() == s).map(this::view).toList();
+    public List<VacancyView> listVacancies(String status, String triggerCode, String orgUnitCode) {
+        Set<VacancyStatus> wanted = new HashSet<>();
+        if (!blank(status)) for (String s : status.split(",")) wanted.add(parse(VacancyStatus.class, s, "vacancy status"));
+        List<Vacancy> rows = vacancies.findAllByOrderByIdDesc().stream()
+                .filter(v -> wanted.isEmpty() || wanted.contains(v.getStatus()))
+                .filter(v -> blank(triggerCode) || triggerCode.equals(v.getTriggerCode()))
+                .filter(v -> blank(orgUnitCode) || orgUnitCode.equals(v.getOrgUnitCode()))
+                .toList();
+        ViewContext ctx = context(rows);
+        return rows.stream().map(v -> view(v, ctx)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -113,13 +153,13 @@ public class RecruitmentService {
                                     int numPosts, LocalDate closingDate, String description, String requirements) {
     }
 
-    /** Open positions visible to all staff (FR-REC-002). Only non-confidential vacancy details are returned. */
+    /** Advertised positions visible to all staff (FR-REC-002). Only non-confidential vacancy details are returned. */
     @Transactional(readOnly = true)
     public List<AvailablePosition> availablePositions() {
         LocalDate today = LocalDate.now();
         Map<Long, String> des = designationNames();
         Map<String, String> units = unitNames();
-        return vacancies.findByStatusOrderByClosingDateAsc(VacancyStatus.OPEN).stream()
+        return vacancies.findByStatusOrderByClosingDateAsc(VacancyStatus.ADVERTISED).stream()
                 .filter(v -> v.getClosingDate() == null || !v.getClosingDate().isBefore(today))
                 .map(v -> new AvailablePosition(v.getId(), v.getReferenceNo(), v.getTitle(), des.get(v.getDesignationId()),
                         units.getOrDefault(v.getOrgUnitCode(), v.getOrgUnitCode()), v.getNumPosts(), v.getClosingDate(),
@@ -127,6 +167,7 @@ public class RecruitmentService {
                 .toList();
     }
 
+    /** Manual vacancy (REQ 5.1 "manual vacancy too"): OPEN, or FORECAST when the expected date is in the future. */
     @Transactional
     public VacancyView createVacancy(VacancyRequest r) {
         Vacancy v = new Vacancy();
@@ -134,12 +175,19 @@ public class RecruitmentService {
         if (!REF.matcher(ref).matches()) throw ApiException.badRequest("Reference number may contain letters, digits, '/', '-' and '_' only");
         if (vacancies.existsByReferenceNo(ref)) throw ApiException.conflict("Vacancy reference " + ref + " already exists");
         v.setReferenceNo(ref);
-        v.setStatus(VacancyStatus.DRAFT);
-        v.setExamWeight(settings.getDecimal("recruitment.default-exam-weight", BigDecimal.valueOf(60)));
-        v.setInterviewWeight(settings.getDecimal("recruitment.default-interview-weight", BigDecimal.valueOf(40)));
+        v.setSource(VacancySource.MANUAL);
+        v.setTriggerCode("MANUAL");
+        v.setExamWeight(defaultExamWeight());
+        v.setInterviewWeight(defaultInterviewWeight());
+        LocalDate expected = r.expectedDate() == null ? LocalDate.now() : r.expectedDate();
+        v.setExpectedDate(expected);
+        v.setStatus(expected.isAfter(LocalDate.now()) ? VacancyStatus.FORECAST : VacancyStatus.OPEN);
         apply(v, r);
+        if (r.sorId() != null) v.setSorId(checkSor(r.sorId(), v.getDesignationId()).getId());
+        else if (settings.getBool("vacancy.auto-link-sor", true)) currentApprovedSor(v.getDesignationId()).ifPresent(s -> v.setSorId(s.getId()));
         vacancies.save(v);
-        audit.log(AuditAction.CREATE, "Vacancy", v.getId(), "Vacancy " + ref + " created: " + v.getTitle() + " (" + v.getNumPosts() + " posts)");
+        audit.log(AuditAction.CREATE, "Vacancy", v.getId(), "Vacancy " + ref + " created manually: " + v.getTitle() + " ("
+                + v.getNumPosts() + " posts, " + v.getStatus() + ")");
         return view(v);
     }
 
@@ -149,10 +197,15 @@ public class RecruitmentService {
         if (v.getStatus() == VacancyStatus.FILLED || v.getStatus() == VacancyStatus.CANCELLED)
             throw ApiException.rule("VACANCY_CLOSED", "A filled or cancelled vacancy cannot be changed");
         String before = describe(v);
-        if (!applicants.findByVacancyIdOrderByIdAsc(id).isEmpty()
+        if (applicants.countByVacancyId(id) > 0
                 && (!Objects.equals(r.designationId(), v.getDesignationId()) || !Objects.equals(r.orgUnitCode(), v.getOrgUnitCode())))
             throw ApiException.rule("HAS_APPLICANTS", "Designation and unit cannot be changed once applications are recorded");
+        if (v.getSource() == VacancySource.AUTO
+                && (!Objects.equals(r.designationId(), v.getDesignationId()) || !Objects.equals(r.orgUnitCode(), v.getOrgUnitCode())))
+            throw ApiException.rule("AUTO_VACANCY", "The post of an automatically created vacancy cannot be changed");
         apply(v, r);
+        if (r.expectedDate() != null && (v.getStatus() == VacancyStatus.FORECAST || v.getStatus() == VacancyStatus.OPEN))
+            v.setExpectedDate(r.expectedDate());
         audit.log(AuditAction.UPDATE, "Vacancy", id, "Vacancy " + v.getReferenceNo() + " updated", before, describe(v));
         return view(v);
     }
@@ -162,33 +215,44 @@ public class RecruitmentService {
         if (r.designationId() == null) throw ApiException.badRequest("Designation is required");
         if (blank(r.orgUnitCode())) throw ApiException.badRequest("Org unit is required");
         if (r.numPosts() == null || r.numPosts() < 1) throw ApiException.badRequest("Number of posts must be at least 1");
-        designations.findById(r.designationId()).filter(Designation::isActive)
+        Designation des = designations.findById(r.designationId()).filter(Designation::isActive)
                 .orElseThrow(() -> ApiException.rule("INVALID_REFERENCE", "Designation is not active"));
+        if (des.isDyingCadre())
+            throw ApiException.rule("DYING_CADRE", des.getName() + " is a dying cadre: no fresh recruitment; posts lapse as holders leave (REQ 6.10)");
         establishment.orgUnit(r.orgUnitCode(), LocalDate.now())
                 .orElseThrow(() -> ApiException.rule("INVALID_REFERENCE", "Org unit " + r.orgUnitCode() + " is not active"));
         if (r.openingDate() != null && r.closingDate() != null && r.closingDate().isBefore(r.openingDate()))
             throw ApiException.badRequest("Closing date cannot be before the opening date");
+        if (r.positionId() != null) {
+            Position p = positions.findById(r.positionId()).orElseThrow(() -> ApiException.notFound("Post", r.positionId()));
+            if (!p.getOrgUnitCode().equals(r.orgUnitCode()) || !p.getDesignationId().equals(r.designationId()))
+                throw ApiException.rule("POSITION_MISMATCH", "Post " + p.getCode() + " does not belong to the selected unit and designation");
+            if (!p.isActive() || !"ACTIVE".equals(p.getPostStatus()))
+                throw ApiException.rule("POST_NOT_ACTIVE", "Post " + p.getCode() + " is " + p.getPostStatus().toLowerCase().replace('_', ' '));
+            if (r.numPosts() != 1) throw ApiException.badRequest("A vacancy for a single post must have exactly one post");
+            vacancies.findByPositionIdAndStatusIn(p.getId(), LIVE_VACANCY).stream().filter(o -> !o.getId().equals(v.getId())).findAny()
+                    .ifPresent(o -> { throw ApiException.conflict("Post " + p.getCode() + " already has vacancy " + o.getReferenceNo()); });
+        }
         if (r.examWeight() != null) v.setExamWeight(weight(r.examWeight(), "Examination weight"));
         if (r.interviewWeight() != null) v.setInterviewWeight(weight(r.interviewWeight(), "Interview weight"));
         if (v.getExamWeight().add(v.getInterviewWeight()).signum() <= 0)
             throw ApiException.badRequest("At least one of the examination or interview weights must be positive");
-        if (settings.getBool("recruitment.enforce-cadre", true)) {
+        if (settings.getBool("recruitment.enforce-cadre", true) && v.getStatus() != VacancyStatus.FORECAST) {
             long vacant = establishment.cadreSummary(LocalDate.now(), null).stream()
                     .filter(c -> c.designationId().equals(r.designationId()) && c.orgUnitCode().equals(r.orgUnitCode()))
                     .mapToLong(EstablishmentService.CadreRow::vacant).sum();
             long others = vacancies.findByDesignationIdAndOrgUnitCodeAndStatusIn(r.designationId(), r.orgUnitCode(), ACTIVE_VACANCY)
-                    .stream().filter(o -> !o.getId().equals(v.getId()))
-                    .mapToLong(o -> Math.max(0, o.getNumPosts() - applicants.countByVacancyIdAndStatus(o.getId(), ApplicantStatus.APPOINTED)))
-                    .sum();
-            long appointedHere = v.getId() == null ? 0 : applicants.countByVacancyIdAndStatus(v.getId(), ApplicantStatus.APPOINTED);
+                    .stream().filter(o -> !o.getId().equals(v.getId())).mapToLong(this::remainingPosts).sum();
+            long filledHere = v.getId() == null ? 0 : applicants.countByVacancyIdAndStatus(v.getId(), ApplicantStatus.APPOINTED) + v.getFilledPosts();
             // Posts already filled through this vacancy are now "occupied" in the cadre; only the remainder needs headroom.
-            if (r.numPosts() - appointedHere > vacant - others)
+            if (r.numPosts() - filledHere > vacant - others)
                 throw ApiException.rule("CADRE_EXCEEDED", "Only " + Math.max(0, vacant - others)
                         + " post(s) of this designation in this unit are vacant in the approved cadre and not already under recruitment");
         }
         v.setTitle(r.title().trim());
         v.setDesignationId(r.designationId());
         v.setOrgUnitCode(r.orgUnitCode());
+        v.setPositionId(r.positionId());
         v.setNumPosts(r.numPosts());
         v.setOpeningDate(r.openingDate());
         v.setClosingDate(r.closingDate());
@@ -202,45 +266,143 @@ public class RecruitmentService {
         VacancyStatus to = parse(VacancyStatus.class, status, "vacancy status");
         if (to == null) throw ApiException.badRequest("Status is required");
         VacancyStatus from = v.getStatus();
-        boolean ok = switch (from) {
-            case DRAFT -> to == VacancyStatus.OPEN || to == VacancyStatus.CANCELLED;
-            case OPEN -> to == VacancyStatus.CLOSED || to == VacancyStatus.CANCELLED;
-            case CLOSED -> to == VacancyStatus.OPEN || to == VacancyStatus.CANCELLED;
-            case FILLED, CANCELLED -> false;
-        };
-        if (!ok) throw ApiException.rule("INVALID_TRANSITION", "A " + from + " vacancy cannot be changed to " + to);
+        if (to == VacancyStatus.ADVERTISED && from == VacancyStatus.OPEN)
+            throw ApiException.rule("PUBLISH_REQUIRED", "A vacancy is advertised only by publishing it with an approved SOR (Publisher role)");
+        if (to == VacancyStatus.FILLED)
+            throw ApiException.rule("INVALID_TRANSITION", "A vacancy is filled automatically when the post is filled by appointment or placement");
+        if (!VACANCY_TRANSITIONS.getOrDefault(from, Set.of()).contains(to))
+            throw ApiException.rule("INVALID_TRANSITION", "A " + from + " vacancy cannot be changed to " + to);
+        if ((to == VacancyStatus.FROZEN || to == VacancyStatus.CANCELLED) && blank(remarks))
+            throw ApiException.badRequest("A reason is required to " + (to == VacancyStatus.FROZEN ? "freeze" : "cancel") + " a vacancy");
         if (to == VacancyStatus.CANCELLED && applicants.countByVacancyIdAndStatus(id, ApplicantStatus.APPOINTED) > 0)
             throw ApiException.rule("HAS_APPOINTMENTS", "A vacancy with appointments cannot be cancelled");
-        if (to == VacancyStatus.OPEN && v.getOpeningDate() == null) v.setOpeningDate(LocalDate.now());
+        if (from == VacancyStatus.CLOSED && to == VacancyStatus.ADVERTISED && v.getClosingDate() != null && v.getClosingDate().isBefore(LocalDate.now()))
+            throw ApiException.rule("CLOSING_DATE_PASSED", "The advertised closing date has passed; publish the vacancy again with new dates");
+        if (from == VacancyStatus.FROZEN && to == VacancyStatus.OPEN) {
+            if (v.getPositionId() != null) {
+                Position p = positions.findById(v.getPositionId()).orElseThrow();
+                if (!p.isActive() || !"ACTIVE".equals(p.getPostStatus()))
+                    throw ApiException.rule("POST_NOT_ACTIVE", "Post " + p.getCode() + " is " + p.getPostStatus().toLowerCase()
+                            + "; restore it through a Cadre Change Request first");
+            }
+            if (designations.findById(v.getDesignationId()).map(Designation::isDyingCadre).orElse(false))
+                throw ApiException.rule("DYING_CADRE", "The designation is a dying cadre: no fresh recruitment (REQ 6.10)");
+        }
+        if (to == VacancyStatus.OPEN && v.getExpectedDate() != null && v.getExpectedDate().isAfter(LocalDate.now()) && from == VacancyStatus.FORECAST)
+            v.setStatusReason("Opened before the expected date" + (blank(remarks) ? "" : ": " + remarks.trim()));
+        else if (!blank(remarks)) v.setStatusReason(remarks.trim().length() > 1000 ? remarks.trim().substring(0, 1000) : remarks.trim());
         v.setStatus(to);
         audit.log(AuditAction.UPDATE, "Vacancy", id, "Vacancy " + v.getReferenceNo() + " " + from + " → " + to
                 + (blank(remarks) ? "" : ": " + remarks), from.name(), to.name());
         return view(v);
     }
 
-    /** Marks the vacancy FILLED once all posts are appointed. */
-    void refreshFilled(Vacancy v) {
-        if (v.getStatus() != VacancyStatus.FILLED
-                && applicants.countByVacancyIdAndStatus(v.getId(), ApplicantStatus.APPOINTED) >= v.getNumPosts()) {
+    /** Links a Scheme of Recruitment version of the same designation (REQ 5.4). */
+    @Transactional
+    public VacancyView linkSor(Long id, Long sorId) {
+        Vacancy v = vacancy(id);
+        if (!LIVE_VACANCY.contains(v.getStatus()) && v.getStatus() != VacancyStatus.FROZEN)
+            throw ApiException.rule("VACANCY_CLOSED", "A filled or cancelled vacancy cannot be changed");
+        if (v.getStatus() == VacancyStatus.ADVERTISED)
+            throw ApiException.rule("ADVERTISED", "Withdraw the publication before changing the SOR of an advertised vacancy");
+        Long before = v.getSorId();
+        if (sorId == null) {
+            v.setSorId(null);
+        } else {
+            v.setSorId(checkSor(sorId, v.getDesignationId()).getId());
+        }
+        audit.log(AuditAction.UPDATE, "Vacancy", id, "SOR of vacancy " + v.getReferenceNo() + " changed", before, v.getSorId());
+        return view(v);
+    }
+
+    private Sor checkSor(Long sorId, Long designationId) {
+        Sor s = sors.findById(sorId).orElseThrow(() -> ApiException.notFound("SOR", sorId));
+        if (!s.getDesignationId().equals(designationId))
+            throw ApiException.rule("SOR_MISMATCH", "SOR " + s.getSorNo() + " is for a different designation");
+        if (s.getStatus() == SorStatus.REJECTED || s.getStatus() == SorStatus.SUPERSEDED)
+            throw ApiException.rule("SOR_NOT_USABLE", "SOR " + s.getSorNo() + " v" + s.getVersionNo() + " is " + s.getStatus().name().toLowerCase());
+        return s;
+    }
+
+    public Optional<Sor> currentApprovedSor(Long designationId) {
+        return sors.findByDesignationIdAndStatusOrderByApprovedAtDesc(designationId, SorStatus.APPROVED).stream().findFirst();
+    }
+
+    /** Marks the vacancy FILLED once all posts are filled by appointment or placement; alerts stop (REQ 5.7). */
+    public void refreshFilled(Vacancy v) {
+        if (v.getStatus() != VacancyStatus.FILLED && remainingPosts(v) <= 0) {
             VacancyStatus from = v.getStatus();
             v.setStatus(VacancyStatus.FILLED);
+            v.setFilledOn(LocalDate.now());
             audit.log(AuditAction.UPDATE, "Vacancy", v.getId(), "Vacancy " + v.getReferenceNo() + " filled", from.name(), "FILLED");
         }
     }
 
-    private VacancyView view(Vacancy v) {
-        Map<String, Long> byStatus = new TreeMap<>(applicants.findByVacancyIdOrderByIdAsc(v.getId()).stream()
-                .collect(Collectors.groupingBy(a -> a.getStatus().name(), Collectors.counting())));
-        long total = byStatus.values().stream().mapToLong(Long::longValue).sum();
-        String des = designations.findById(v.getDesignationId()).map(Designation::getName).orElse(null);
-        String unit = establishment.orgUnit(v.getOrgUnitCode(), LocalDate.now()).map(OrgUnit::getName).orElse(v.getOrgUnitCode());
-        return new VacancyView(v.getId(), v.getReferenceNo(), v.getTitle(), v.getDesignationId(), des, v.getOrgUnitCode(), unit,
-                v.getNumPosts(), v.getStatus().name(), v.getOpeningDate(), v.getClosingDate(), v.getDescription(),
-                v.getRequirements(), v.getExamWeight(), v.getInterviewWeight(), byStatus, total,
-                byStatus.getOrDefault("APPOINTED", 0L), v.getCreatedAt(), v.getCreatedBy());
+    public long remainingPosts(Vacancy v) {
+        return Math.max(0, v.getNumPosts() - v.getFilledPosts() - applicants.countByVacancyIdAndStatus(v.getId(), ApplicantStatus.APPOINTED));
     }
 
-    private String nextReference() {
+    public BigDecimal defaultExamWeight() {
+        return settings.getDecimal("recruitment.default-exam-weight", BigDecimal.valueOf(60));
+    }
+
+    public BigDecimal defaultInterviewWeight() {
+        return settings.getDecimal("recruitment.default-interview-weight", BigDecimal.valueOf(40));
+    }
+
+    // ------------------------------------------------------------------ views
+
+    private record ViewContext(Map<Long, Designation> designations, Map<String, String> units, Map<Long, String> positionCodes,
+                               Map<Long, Sor> sors, Map<String, String> triggers, Map<Long, Map<String, Long>> applicants,
+                               Map<Long, String> employeeNos) {
+    }
+
+    private ViewContext context(Collection<Vacancy> rows) {
+        Map<Long, Designation> des = designations.findAll().stream().collect(Collectors.toMap(Designation::getId, d -> d));
+        Set<Long> posIds = rows.stream().map(Vacancy::getPositionId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, String> pos = posIds.isEmpty() ? Map.of() : positions.findAllById(posIds).stream()
+                .collect(Collectors.toMap(Position::getId, Position::getCode));
+        Set<Long> sorIds = rows.stream().map(Vacancy::getSorId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, Sor> sorMap = sorIds.isEmpty() ? Map.of() : sors.findAllById(sorIds).stream().collect(Collectors.toMap(Sor::getId, s -> s));
+        Map<String, String> trig = triggers.findAll().stream().collect(Collectors.toMap(TriggerConfig::getCode, TriggerConfig::getName));
+        Map<Long, Map<String, Long>> apps = new HashMap<>();
+        if (rows.size() == 1) {
+            Vacancy only = rows.iterator().next();
+            apps.put(only.getId(), new TreeMap<>(applicants.findByVacancyIdOrderByIdAsc(only.getId()).stream()
+                    .collect(Collectors.groupingBy(a -> a.getStatus().name(), Collectors.counting()))));
+        } else {
+            for (Object[] row : applicants.countByVacancyAndStatus())
+                apps.computeIfAbsent((Long) row[0], k -> new TreeMap<>()).put(String.valueOf(row[1]), (Long) row[2]);
+        }
+        Set<Long> empIds = rows.stream().map(Vacancy::getVacatedByEmployeeId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, String> emps = new HashMap<>();
+        employeeLookup.briefs(empIds).forEach((k, b) -> emps.put(k, b.employeeNo()));
+        return new ViewContext(des, unitNames(), pos, sorMap, trig, apps, emps);
+    }
+
+    public VacancyView view(Vacancy v) {
+        return view(v, context(List.of(v)));
+    }
+
+    private VacancyView view(Vacancy v, ViewContext c) {
+        Map<String, Long> byStatus = c.applicants().getOrDefault(v.getId(), Map.of());
+        long total = byStatus.values().stream().mapToLong(Long::longValue).sum();
+        Designation d = c.designations().get(v.getDesignationId());
+        Sor s = v.getSorId() == null ? null : c.sors().get(v.getSorId());
+        return new VacancyView(v.getId(), v.getReferenceNo(), v.getTitle(), v.getDesignationId(), d == null ? null : d.getName(),
+                d == null ? null : d.getGrade(), v.getOrgUnitCode(), c.units().getOrDefault(v.getOrgUnitCode(), v.getOrgUnitCode()),
+                v.getPositionId(), v.getPositionId() == null ? null : c.positionCodes().get(v.getPositionId()), v.getNumPosts(),
+                v.getStatus().name(), v.getTriggerCode(), c.triggers().getOrDefault(v.getTriggerCode(), v.getTriggerCode()),
+                v.getSource().name(), v.getExpectedDate(), v.getOpeningDate(), v.getClosingDate(), v.getDescription(),
+                v.getRequirements(), v.getExamWeight(), v.getInterviewWeight(), v.getSorId(),
+                s == null ? null : s.getSorNo() + " v" + s.getVersionNo(), s == null ? null : s.getStatus().name(),
+                v.getVacatedByEmployeeId(), v.getVacatedByEmployeeId() == null ? null : c.employeeNos().get(v.getVacatedByEmployeeId()),
+                v.getCadreChangeId(), v.getFilledPosts(), v.getFilledOn(), v.getStatusReason(), d != null && d.isDyingCadre(),
+                byStatus, total, byStatus.getOrDefault("APPOINTED", 0L), v.getCreatedAt(), v.getCreatedBy());
+    }
+
+    /** Next free reference VAC-yyyy-nnn. */
+    public String nextReference() {
         int year = LocalDate.now().getYear();
         long n = vacancies.count() + 1;
         String ref;
@@ -251,11 +413,12 @@ public class RecruitmentService {
     }
 
     private static String describe(Vacancy v) {
-        return v.getTitle() + " | des " + v.getDesignationId() + " | " + v.getOrgUnitCode() + " | posts " + v.getNumPosts()
-                + " | " + v.getOpeningDate() + "→" + v.getClosingDate() + " | weights " + v.getExamWeight() + "/" + v.getInterviewWeight();
+        return v.getTitle() + " | des " + v.getDesignationId() + " | " + v.getOrgUnitCode() + " | post " + v.getPositionId()
+                + " | posts " + v.getNumPosts() + " | expected " + v.getExpectedDate() + " | " + v.getOpeningDate() + "→" + v.getClosingDate()
+                + " | weights " + v.getExamWeight() + "/" + v.getInterviewWeight();
     }
 
-    Vacancy vacancy(Long id) {
+    public Vacancy vacancy(Long id) {
         return vacancies.findById(id).orElseThrow(() -> ApiException.notFound("Vacancy", id));
     }
 
@@ -305,8 +468,8 @@ public class RecruitmentService {
         Announcement a = announcement(id);
         if (publish && a.getVacancyId() != null) {
             Vacancy v = vacancy(a.getVacancyId());
-            if (v.getStatus() != VacancyStatus.OPEN)
-                throw ApiException.rule("VACANCY_NOT_OPEN", "Open vacancy " + v.getReferenceNo() + " before publishing its announcement");
+            if (v.getStatus() != VacancyStatus.ADVERTISED)
+                throw ApiException.rule("VACANCY_NOT_OPEN", "Vacancy " + v.getReferenceNo() + " must be advertised (published with an approved SOR) before its announcement is published");
         }
         a.setPublished(publish);
         a.setPublishedAt(publish ? Instant.now() : null);
@@ -375,8 +538,8 @@ public class RecruitmentService {
     public Applicant createApplicant(ApplicantRequest r) {
         if (r.vacancyId() == null) throw ApiException.badRequest("Vacancy is required");
         Vacancy v = vacancy(r.vacancyId());
-        if (v.getStatus() != VacancyStatus.OPEN && v.getStatus() != VacancyStatus.CLOSED)
-            throw ApiException.rule("VACANCY_NOT_OPEN", "Applications can only be recorded for open (or recently closed) vacancies");
+        if (v.getStatus() != VacancyStatus.ADVERTISED && v.getStatus() != VacancyStatus.CLOSED)
+            throw ApiException.rule("VACANCY_NOT_OPEN", "Applications can only be recorded for advertised (or recently closed) vacancies (REQ 5.6)");
         Applicant a = new Applicant();
         a.setVacancyId(v.getId());
         applyApplicant(a, r);
