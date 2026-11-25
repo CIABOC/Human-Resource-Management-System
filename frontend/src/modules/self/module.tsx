@@ -4,7 +4,6 @@ import type { ModuleDef } from '../types';
 
 const MyProfilePage = lazy(() => import('./MyProfilePage'));
 const ChangePasswordPage = lazy(() => import('./ChangePasswordPage'));
-const AccountSettingsPage = lazy(() => import('./AccountSettingsPage'));
 
 const mod: ModuleDef = {
   key: 'self',
@@ -12,7 +11,6 @@ const mod: ModuleDef = {
   routes: [
     { path: '/me', element: <MyProfilePage />, anyOf: ['SELF_SERVICE'] },
     { path: '/account/password', element: <ChangePasswordPage /> },
-    { path: '/account/settings', element: <AccountSettingsPage /> },
   ],
 };
 export default mod;

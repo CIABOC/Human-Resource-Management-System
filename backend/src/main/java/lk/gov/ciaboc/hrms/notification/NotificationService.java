@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -72,14 +73,28 @@ public class NotificationService {
         n.setBody(body);
         n.setLink(link);
         n.setCreatedAt(Instant.now());
-        if (u.isNotifySystem()) notifications.save(n);
+        notifications.save(n);
 
-        if (t != null && t.isSendEmail() && u.isNotifyEmail() && u.getEmail() != null && integrations.isEnabled(IntegrationService.EMAIL)) {
+        if (t != null && t.isSendEmail() && u.getEmail() != null && integrations.isEnabled(IntegrationService.EMAIL)) {
             queue("EMAIL", u.getEmail(), "[CIABOC HRMS] " + title, body, false);
         }
-        if (t != null && t.isSendSms() && u.isNotifySms() && u.getMobile() != null && integrations.isEnabled(IntegrationService.SMS)) {
+        if (t != null && t.isSendSms() && u.getMobile() != null && integrations.isEnabled(IntegrationService.SMS)) {
             queue("SMS", u.getMobile(), null, title, false);
         }
+    }
+
+    /** Sends a one-time password immediately (with queue fallback). Returns a masked destination for display. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public String sendOtp(AppUser u, String code, int expiryMinutes) {
+        String text = "Your CIABOC HRMS verification code is " + code + ". It expires in " + expiryMinutes
+                + " minutes. Do not share this code.";
+        boolean sms = "SMS".equals(u.getOtpChannel()) && u.getMobile() != null;
+        String channel = sms ? "SMS" : "EMAIL";
+        String to = sms ? u.getMobile() : u.getEmail();
+        if (to == null) return "no registered contact";
+        OutboundMessage m = queue(channel, to, "CIABOC HRMS verification code", text, true);
+        dispatch(m);
+        return mask(channel, to);
     }
 
     private OutboundMessage queue(String channel, String to, String subject, String body, boolean sensitive) {
@@ -120,4 +135,13 @@ public class NotificationService {
         outbound.save(m);
     }
 
+    static String mask(String channel, String to) {
+        if ("SMS".equals(channel)) {
+            return "SMS to ******" + to.substring(Math.max(0, to.length() - 3));
+        }
+        int at = to.indexOf('@');
+        String name = at > 0 ? to.substring(0, at) : to;
+        String domain = at > 0 ? to.substring(at) : "";
+        return "e-mail to " + name.charAt(0) + "***" + domain;
+    }
 }

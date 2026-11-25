@@ -9,7 +9,7 @@ Conventions every module follows. Read this before adding a module. The **Establ
 |---|---|---|
 | Presentation | React 18, TypeScript, Vite | Screens, forms, route protection, token handling |
 | Application / API | Spring Boot 3.4, Java 21, Maven | Endpoints, validation, business rules, error handling |
-| Security | Spring Security, JWT | Password login, token issue/expiry/refresh, roles & permissions; SSO/IAM is a future integration |
+| Security | Spring Security, JWT (+ e-mail/SMS OTP) | Login, token issue/expiry/refresh, roles & permissions |
 | Data | PostgreSQL 16, Flyway | Schema, constraints, transactions, migrations |
 | Deployment | Docker, Docker Compose, Nginx | Containers, reverse proxy, HTTPS, configuration |
 
@@ -40,7 +40,6 @@ Version ranges are reserved per module to avoid clashes:
 | V20–V29 | Payroll and Benefits |
 | V30–V39 | Recruitment, Performance, Training |
 | V40–V49 | Extended scope (transfers, promotions, retirement, certificates) |
-| V50+ | Cross-module and account improvements |
 
 Development-only sample data goes in `src/main/resources/db/demo/R__demo_<module>.sql` (repeatable, **idempotent**:
 `ON CONFLICT DO NOTHING` / `WHERE NOT EXISTS`). Never change a migration that has been applied; add a new one.
@@ -71,7 +70,7 @@ Development-only sample data goes in `src/main/resources/db/demo/R__demo_<module
 ### Tests
 - Integration tests extend `support.IntegrationTestBase` (embedded PostgreSQL, real migrations, demo data). Demo users
   (password `Demo@12345`): `hr`, `hr2`, `establishment`, `adminofficer`, `finance`, `finance2`, `head` (Investigation
-  division head), `employee` (Investigating Officer CIA-0008), `dg` (Management), `auditor`; `admin`/`Admin1234`.
+  division head), `employee` (Investigating Officer CIA-0008), `dg` (Management), `auditor`; `admin`/`Admin@12345`.
 - Run: `cd backend && mvn -B -o test -Dtest=YourTest`.
 
 ## Frontend

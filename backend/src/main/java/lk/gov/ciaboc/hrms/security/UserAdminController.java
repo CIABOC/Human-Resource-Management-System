@@ -36,11 +36,11 @@ public class UserAdminController {
     private final lk.gov.ciaboc.hrms.employee.EmployeeRepository employees;
 
     public record UserView(Long id, String username, String fullName, String email, String mobile, Long employeeId,
-                           boolean active, String dataScope, String preferredLanguage,
+                           boolean active, String dataScope, String preferredLanguage, String otpChannel,
                            List<String> roles, Instant lastLoginAt, boolean locked) {
         static UserView of(AppUser u) {
             return new UserView(u.getId(), u.getUsername(), u.getFullName(), u.getEmail(), u.getMobile(),
-                    u.getEmployeeId(), u.isActive(), u.getDataScope().name(), u.getPreferredLanguage(),
+                    u.getEmployeeId(), u.isActive(), u.getDataScope().name(), u.getPreferredLanguage(), u.getOtpChannel(),
                     u.getRoles().stream().map(Role::getCode).sorted().toList(), u.getLastLoginAt(),
                     u.getLockedUntil() != null && u.getLockedUntil().isAfter(Instant.now()));
         }
@@ -53,6 +53,7 @@ public class UserAdminController {
                               Long employeeId,
                               @NotNull DataScope dataScope,
                               @Pattern(regexp = "en|si|ta") String preferredLanguage,
+                              @Pattern(regexp = "EMAIL|SMS") String otpChannel,
                               Set<String> roleCodes,
                               String password) {
     }
@@ -109,6 +110,7 @@ public class UserAdminController {
         u.setEmployeeId(r.employeeId());
         u.setDataScope(r.dataScope());
         u.setPreferredLanguage(r.preferredLanguage() == null ? "en" : r.preferredLanguage());
+        u.setOtpChannel(r.otpChannel() == null ? "EMAIL" : r.otpChannel());
         Set<Role> rs = new HashSet<>();
         if (r.roleCodes() != null) {
             for (String code : r.roleCodes()) rs.add(roles.findByCode(code).orElseThrow(() -> ApiException.notFound("Role", code)));
@@ -248,6 +250,18 @@ public class UserAdminController {
                 .limit(50)
                 .map(e -> new EmployeeOption(e.getId(), e.getEmployeeNo(), e.getNameWithInitials(), linked.contains(e.getId())))
                 .toList();
+    }
+
+    // ---- own account ----
+
+    public record PreferencesRequest(@Pattern(regexp = "en|si|ta") String preferredLanguage) {
+    }
+
+    @PutMapping("/api/account/preferences")
+    @Transactional
+    public void preferences(@Valid @RequestBody PreferencesRequest r) {
+        AppUser u = find(CurrentUser.get().getId());
+        if (r.preferredLanguage() != null) u.setPreferredLanguage(r.preferredLanguage());
     }
 
     private AppUser find(Long id) {

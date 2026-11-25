@@ -48,7 +48,6 @@ public class EmployeeService implements WorkflowHandler {
     private static final Set<String> SENSITIVE_FIELDS = Set.of("fullName", "nic", "dateOfBirth", "bankCode", "bankBranch", "bankAccountNo");
     /** Fields an employee may request to change through self-service (FR-EMP-013). */
     private static final Set<String> SELF_FIELDS = Set.of("phone", "mobile", "email", "residentialAddress", "permanentAddress", "civilStatus");
-    private static final Set<String> SELF_HR_REQUEST_TYPES = Set.of("QUALIFICATION_UPDATE", "SERVICE_RECORD_CORRECTION");
     private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules()
             .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
             .disable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
@@ -139,7 +138,7 @@ public class EmployeeService implements WorkflowHandler {
     }
 
     public record EmployeeView(Employee employee, String designationName, String orgUnitName, String positionTitle,
-                               String grade, String reportingOfficerName, boolean hasUserAccount) {
+                               boolean hasUserAccount) {
     }
 
     @Transactional(readOnly = true)
@@ -154,21 +153,8 @@ public class EmployeeService implements WorkflowHandler {
     private EmployeeView toView(Employee e) {
         String des = e.getDesignationId() == null ? null : designations.findById(e.getDesignationId()).map(Designation::getName).orElse(null);
         String unit = e.getOrgUnitCode() == null ? null : establishment.orgUnit(e.getOrgUnitCode(), LocalDate.now()).map(OrgUnit::getName).orElse(e.getOrgUnitCode());
-        Designation designation = e.getDesignationId() == null ? null : designations.findById(e.getDesignationId()).orElse(null);
-        Position position = e.getPositionId() == null ? null : positions.findById(e.getPositionId()).orElse(null);
-        String reportingOfficer = null;
-        if (position != null && position.getReportsToPositionCode() != null) {
-            Position reportsTo = positions.findByCode(position.getReportsToPositionCode()).orElse(null);
-            if (reportsTo != null) {
-                reportingOfficer = assignments.employeesInPositionOn(reportsTo.getId(), LocalDate.now()).stream()
-                        .findFirst().flatMap(a -> employees.findById(a.getEmployeeId()))
-                        .filter(officer -> !officer.isRestricted() || CurrentUser.get().has(Permission.EMP_RESTRICTED))
-                        .map(Employee::getNameWithInitials).orElse(null);
-            }
-        }
-        return new EmployeeView(e, des, unit, position == null ? null : position.getTitle(),
-                designation == null ? null : designation.getGrade(), reportingOfficer,
-                users.findByEmployeeId(e.getId()).isPresent());
+        String pos = e.getPositionId() == null ? null : positions.findById(e.getPositionId()).map(Position::getTitle).orElse(null);
+        return new EmployeeView(e, des, unit, pos, users.findByEmployeeId(e.getId()).isPresent());
     }
 
     // ===================================================================== create / update
@@ -557,35 +543,6 @@ public class EmployeeService implements WorkflowHandler {
         return openChangeRequest(e, diff, reason, "SELF");
     }
 
-    @Transactional
-    public EmployeeDetails.ProfileChangeRequest requestSelfHrAction(String requestType, String details, String reason) {
-        Long empId = CurrentUser.employeeId();
-        Employee e = lookup.require(empId);
-        if (!SELF_HR_REQUEST_TYPES.contains(requestType))
-            throw ApiException.badRequest("Unsupported HR request type");
-        require(details, "Request details");
-        if (details.length() > 4000) throw ApiException.badRequest("Request details must be 4000 characters or fewer");
-        if (reason != null && reason.length() > 1000) throw ApiException.badRequest("Reason must be 1000 characters or fewer");
-        if (changeRequests.existsByEmployeeIdAndRequestTypeAndStatusIn(empId, requestType, List.of("PENDING", "RETURNED")))
-            throw ApiException.rule("OPEN_REQUEST", "You already have an open request of this type");
-
-        EmployeeDetails.ProfileChangeRequest cr = new EmployeeDetails.ProfileChangeRequest();
-        cr.setEmployeeId(empId);
-        cr.setChanges("{}");
-        cr.setRequestType(requestType);
-        cr.setRequestDetails(details.trim());
-        cr.setReason(reason == null || reason.isBlank() ? null : reason.trim());
-        cr.setSource("SELF");
-        cr.setStatus("PENDING");
-        changeRequests.save(cr);
-        WorkflowInstance wi = workflow.start(PROFILE_PROCESS, "ProfileChangeRequest", cr.getId(),
-                requestType.replace('_', ' ') + " for " + e.getEmployeeNo(), "/me", empId);
-        cr.setWorkflowInstanceId(wi.getId());
-        audit.log(AuditAction.SUBMIT, "ProfileChangeRequest", cr.getId(),
-                "Employee submitted " + requestType + " request", null, Map.of("details", cr.getRequestDetails()));
-        return cr;
-    }
-
     private EmployeeDetails.ProfileChangeRequest openChangeRequest(Employee e, Map<String, Map<String, Object>> diff,
                                                                     String reason, String source) {
         EmployeeDetails.ProfileChangeRequest cr = new EmployeeDetails.ProfileChangeRequest();
@@ -598,14 +555,11 @@ public class EmployeeService implements WorkflowHandler {
         cr.setReason(reason);
         cr.setSource(source);
         cr.setStatus("PENDING");
-        cr.setRequestType("PROFILE_CHANGE");
         changeRequests.save(cr);
         WorkflowInstance wi = workflow.start(PROFILE_PROCESS, "ProfileChangeRequest", cr.getId(),
                 "Profile change for " + e.getEmployeeNo() + " (" + String.join(", ", diff.keySet()) + ")",
                 "/employees/" + e.getId(), e.getId());
         cr.setWorkflowInstanceId(wi.getId());
-        audit.log(AuditAction.SUBMIT, "ProfileChangeRequest", cr.getId(), "Profile change request submitted",
-                null, Map.of("source", source, "changes", diff, "reason", reason == null ? "" : reason));
         return cr;
     }
 
@@ -623,28 +577,13 @@ public class EmployeeService implements WorkflowHandler {
     @Override
     public void onApproved(WorkflowInstance wi) {
         EmployeeDetails.ProfileChangeRequest cr = cr(wi);
-        if ("PROFILE_CHANGE".equals(cr.getRequestType())) {
-            Employee e = lookup.require(cr.getEmployeeId());
-            Map<String, Object> before = snapshot(e);
-            Map<String, Object> merged = new LinkedHashMap<>(before);
-            readChanges(cr).forEach((f, v) -> merged.put(f, v.get("new")));
-            applyAll(e, JSON.convertValue(merged, EmployeeRequest.class));
-            if (readChanges(cr).keySet().stream().anyMatch(Set.of("email", "mobile")::contains)) {
-                users.findByEmployeeId(e.getId()).ifPresent(account -> {
-                    Map<String, Object> oldContact = Map.of(
-                            "email", account.getEmail() == null ? "" : account.getEmail(),
-                            "mobile", account.getMobile() == null ? "" : account.getMobile());
-                    account.setEmail(e.getEmail());
-                    account.setMobile(e.getMobile());
-                    audit.log(AuditAction.UPDATE, "AppUser", account.getId(), "Approved contact details synchronized",
-                            oldContact, Map.of("email", e.getEmail() == null ? "" : e.getEmail(),
-                                    "mobile", e.getMobile() == null ? "" : e.getMobile()));
-                });
-            }
-            audit.log(AuditAction.UPDATE, "Employee", e.getId(), "Approved profile change applied", before, snapshot(e));
-        }
+        Employee e = lookup.require(cr.getEmployeeId());
+        Map<String, Object> before = snapshot(e);
+        Map<String, Object> merged = new LinkedHashMap<>(before);
+        readChanges(cr).forEach((f, v) -> merged.put(f, v.get("new")));
+        applyAll(e, JSON.convertValue(merged, EmployeeRequest.class));
         cr.setStatus("APPROVED");
-        audit.log(AuditAction.APPROVE, "ProfileChangeRequest", cr.getId(), "Self-service request approved");
+        audit.log(AuditAction.UPDATE, "Employee", e.getId(), "Approved profile change applied", before, snapshot(e));
     }
 
     @Override
@@ -674,13 +613,8 @@ public class EmployeeService implements WorkflowHandler {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("Employee", e.getEmployeeNo() + " — " + e.getNameWithInitials());
         m.put("Source", "SELF".equals(cr.getSource()) ? "Employee self-service" : "HR (maker-checker)");
-        m.put("Request type", cr.getRequestType());
         m.put("Reason", cr.getReason());
-        if (cr.getRequestDetails() != null) {
-            m.put("Request details", cr.getRequestDetails());
-        } else {
-            readChanges(cr).forEach((f, v) -> m.put(f, v.get("old") + " → " + v.get("new")));
-        }
+        readChanges(cr).forEach((f, v) -> m.put(f, v.get("old") + " → " + v.get("new")));
         return m;
     }
 

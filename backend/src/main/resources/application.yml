@@ -12,7 +12,7 @@ spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/hrms}
     username: ${DB_USERNAME:hrms}
-    password: ${DB_PASSWORD:Mt2021al}
+    password: ${DB_PASSWORD:Root@123}
     hikari:
       maximum-pool-size: ${DB_POOL_SIZE:15}
   jpa:
@@ -77,6 +77,12 @@ app:
       issuer: ciaboc-hrms
       access-token-minutes: ${JWT_ACCESS_MINUTES:30}
       refresh-token-hours: ${JWT_REFRESH_HOURS:8}
+    otp:
+      length: 6
+      expiry-seconds: ${OTP_EXPIRY_SECONDS:300}
+      max-attempts: 5
+      # Development only: returns the OTP in the login response so it can be used without e-mail/SMS.
+      dev-echo: ${OTP_DEV_ECHO:false}
     lockout:
       max-failed-attempts: 5
       lock-minutes: 15
@@ -94,7 +100,6 @@ app:
   bootstrap:
     # Creates the initial administrator on first start-up if no users exist.
     admin-username: ${BOOTSTRAP_ADMIN_USERNAME:admin}
-    admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:Admin1234}
+    admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
     admin-email: ${BOOTSTRAP_ADMIN_EMAIL:admin@ciaboc.gov.lk}
-    reset-existing-admin-password: ${BOOTSTRAP_ADMIN_RESET_EXISTING_PASSWORD:false}
     demo-users: ${BOOTSTRAP_DEMO_USERS:false}

@@ -10,7 +10,7 @@ import { DataTable, fmtDateTime } from '@/components/DataTable';
 
 interface UserView {
   id: number; username: string; fullName: string; email?: string; mobile?: string; employeeId?: number | null; active: boolean; dataScope: string;
-  preferredLanguage: string; roles: string[]; lastLoginAt?: string; locked: boolean;
+  preferredLanguage: string; otpChannel: string; roles: string[]; lastLoginAt?: string; locked: boolean;
 }
 interface RoleView { id: number; code: string; name: string; active: boolean }
 interface EmployeeOption { id: number; employeeNo: string; name: string; hasAccount: boolean }
@@ -36,7 +36,7 @@ export default function UsersPage() {
   return (
     <>
       <PageHeader eyebrow="Administration" title="Users" subtitle="Accounts, roles and data scope. Identity will be federated with the CIABOC SSO/IAM platform when it is connected (INT-01)."
-        actions={<button className="btn btn-gold" onClick={() => setEditing({ dataScope: 'SELF', preferredLanguage: 'en', roles: ['EMPLOYEE'] })}><UserPlus /> New user</button>} />
+        actions={<button className="btn btn-gold" onClick={() => setEditing({ dataScope: 'SELF', preferredLanguage: 'en', otpChannel: 'EMAIL', roles: ['EMPLOYEE'] })}><UserPlus /> New user</button>} />
       <div className="filters">
         <div className="field"><label htmlFor="uq">Search</label><div className="search"><Search /><input id="uq" className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Username or name" /></div></div>
       </div>
@@ -78,7 +78,7 @@ function UserModal({ user, onClose, onSaved }: { user: Partial<UserView>; onClos
   const employees = useApi<EmployeeOption[]>('/admin/users/employee-options', { q: empQ });
   const [f, setF] = useState({
     username: user.username ?? '', fullName: user.fullName ?? '', email: user.email ?? '', mobile: user.mobile ?? '', employeeId: user.employeeId ? String(user.employeeId) : '',
-    dataScope: user.dataScope ?? 'SELF', preferredLanguage: user.preferredLanguage ?? 'en', password: '',
+    dataScope: user.dataScope ?? 'SELF', preferredLanguage: user.preferredLanguage ?? 'en', otpChannel: user.otpChannel ?? 'EMAIL', password: '',
   });
   const [sel, setSel] = useState<string[]>(user.roles ?? []);
   const save = async () => {
@@ -99,13 +99,14 @@ function UserModal({ user, onClose, onSaved }: { user: Partial<UserView>; onClos
       <div className="form-grid">
         <TextField label="Username" required value={f.username} onChange={set('username')} disabled={!!user.id} />
         <TextField label="Full name" required value={f.fullName} onChange={set('fullName')} />
-        <TextField label="E-mail" type="email" value={f.email} onChange={set('email')} />
+        <TextField label="E-mail (receives sign-in codes)" type="email" value={f.email} onChange={set('email')} />
         <TextField label="Mobile" value={f.mobile} onChange={set('mobile')} />
         <TextField label="Find employee" value={empQ} onChange={setEmpQ} placeholder="Employee no. or name" />
         <SelectField label="Linked employee record" value={f.employeeId} onChange={set('employeeId')} placeholder="— None (service account) —"
           options={(employees.data ?? []).map((e) => ({ value: String(e.id), label: `${e.employeeNo} — ${e.name}${e.hasAccount && String(e.id) !== f.employeeId ? ' (has account)' : ''}` }))} />
         <SelectField label="Data scope" required value={f.dataScope} onChange={set('dataScope')} placeholder={null}
           options={[{ value: 'SELF', label: 'Own records only' }, { value: 'DIVISION', label: 'Own division' }, { value: 'ALL', label: 'Whole institution' }]} />
+        <SelectField label="Sign-in code via" value={f.otpChannel} onChange={set('otpChannel')} placeholder={null} options={[{ value: 'EMAIL', label: 'E-mail' }, { value: 'SMS', label: 'SMS' }]} />
         <SelectField label="Language" value={f.preferredLanguage} onChange={set('preferredLanguage')} placeholder={null} options={[{ value: 'en', label: 'English' }, { value: 'si', label: 'සිංහල' }, { value: 'ta', label: 'தமிழ்' }]} />
         {!user.id && <TextField label="Initial password" type="password" value={f.password} onChange={set('password')} help="Min. 10 chars with upper/lower case, digit and symbol" />}
         <div className="field span-2">

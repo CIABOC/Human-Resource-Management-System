@@ -137,11 +137,6 @@ public final class EmployeeDetails {
         /** PENDING, RETURNED, APPROVED, REJECTED, CANCELLED */
         @Column(nullable = false, length = 20)
         private String status;
-        /** PROFILE_CHANGE, QUALIFICATION_UPDATE, or SERVICE_RECORD_CORRECTION. */
-        @Column(name = "request_type", nullable = false, length = 40)
-        private String requestType = "PROFILE_CHANGE";
-        @Column(name = "request_details", columnDefinition = "text")
-        private String requestDetails;
         @Column(name = "workflow_instance_id")
         private Long workflowInstanceId;
     }

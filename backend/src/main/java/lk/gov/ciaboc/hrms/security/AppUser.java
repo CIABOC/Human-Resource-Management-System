@@ -44,23 +44,8 @@ public class AppUser extends BaseEntity {
     @Column(name = "preferred_language", nullable = false, length = 5)
     private String preferredLanguage = "en";
 
-    @Column(name = "preferred_theme", nullable = false, length = 10)
-    private String preferredTheme = "LIGHT";
-
-    @Column(name = "notify_system", nullable = false)
-    private boolean notifySystem = true;
-
-    @Column(name = "notify_email", nullable = false)
-    private boolean notifyEmail = true;
-
-    @Column(name = "notify_sms", nullable = false)
-    private boolean notifySms = true;
-
-    @Column(name = "profile_photo_file_id")
-    private Long profilePhotoFileId;
-
-    @Column(name = "token_version", nullable = false)
-    private int tokenVersion;
+    @Column(name = "otp_channel", nullable = false, length = 10)
+    private String otpChannel = "EMAIL";
 
     @Column(name = "failed_attempts", nullable = false)
     private int failedAttempts;

@@ -36,7 +36,6 @@ public class JwtService {
                 .issuer(issuer)
                 .subject(user.getUsername())
                 .claim("uid", user.getId())
-                .claim("ver", user.getTokenVersion())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(accessMinutes, ChronoUnit.MINUTES)))
                 .signWith(key)
@@ -48,17 +47,12 @@ public class JwtService {
     }
 
     /** Returns the username if the token is authentic, unexpired and issued by this service. */
-    public Optional<ValidatedToken> validate(String token) {
+    public Optional<String> validate(String token) {
         try {
             Claims c = Jwts.parser().verifyWith(key).requireIssuer(issuer).build().parseSignedClaims(token).getPayload();
-            Number version = c.get("ver", Number.class);
-            return Optional.ofNullable(c.getSubject()).map(username -> new ValidatedToken(username,
-                    version == null ? -1 : version.intValue()));
+            return Optional.ofNullable(c.getSubject());
         } catch (JwtException | IllegalArgumentException e) {
             return Optional.empty();
         }
-    }
-
-    public record ValidatedToken(String username, int tokenVersion) {
     }
 }

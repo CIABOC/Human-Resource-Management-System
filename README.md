@@ -19,7 +19,7 @@ Prerequisites: Java 21, Maven 3.9, Node 20+, PostgreSQL 16 (or Docker).
 # 1. Database
 docker run -d --name hrms-db -e POSTGRES_DB=hrms -e POSTGRES_USER=hrms -e POSTGRES_PASSWORD=hrms -p 5432:5432 postgres:16-alpine
 
-# 2. API (dev profile = sample structure and demo users)
+# 2. API (dev profile = sample structure, demo users, OTP shown on screen)
 cd backend
 mvn spring-boot:run -Dspring-boot.run.profiles=dev
 
@@ -33,7 +33,7 @@ Demo accounts (dev profile only), password **`Demo@12345`**:
 
 | User | Role | Notes |
 |---|---|---|
-| `admin` / `Admin1234` | System Administrator | configuration only, no HR content |
+| `admin` / `Admin@12345` | System Administrator | configuration only, no HR content |
 | `hr`, `hr2` | HR Administrator | two officers so maker-checker can be demonstrated |
 | `establishment` | Establishment Officer | structure, cadre, legal documents |
 | `adminofficer` | Administrative Officer | recruitment |

@@ -17,10 +17,6 @@ public interface EmployeeAssignmentRepository extends JpaRepository<EmployeeAssi
 
     Optional<EmployeeAssignment> findFirstByEmployeeIdAndEffectiveToIsNullOrderByEffectiveFromDesc(Long employeeId);
 
-    @Query("select a from EmployeeAssignment a where a.positionId = :positionId and a.effectiveFrom <= :d " +
-            "and (a.effectiveTo is null or a.effectiveTo > :d)")
-    List<EmployeeAssignment> employeesInPositionOn(@Param("positionId") Long positionId, @Param("d") LocalDate date);
-
     /** Occupied cadre as at a date: rows of [designationId, orgUnitCode, count]. */
     @Query("select a.designationId, a.orgUnitCode, count(a) from EmployeeAssignment a where a.effectiveFrom <= :d " +
             "and (a.effectiveTo is null or a.effectiveTo > :d) group by a.designationId, a.orgUnitCode")
