@@ -18,8 +18,9 @@ import recruitment from './recruitment/module';
 import performance from './performance/module';
 import training from './training/module';
 import extended from './extended/module';
+import appraisal from './appraisal/module';
 
 export const modules: ModuleDef[] = [
   dashboard, self, establishment, legal, employees, approvals, reports, notifications, admin, audit,
-  leave, attendance, payroll, benefits, recruitment, performance, training, extended,
+  leave, attendance, payroll, benefits, recruitment, performance, training, extended, appraisal,
 ];

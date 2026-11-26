@@ -10,6 +10,7 @@ import { useApi } from '@/hooks/useApi';
 import { useAuth } from '@/auth/AuthContext';
 import { Alert, Card, Empty, Loading } from '@/components/ui';
 import './dashboard.css';
+import DashboardAppraisalPanel from '../appraisal/DashboardAppraisalPanel';
 
 interface Tile { key: string; label: string; value: string; hint?: string; link?: string; tone: string }
 interface Point { label: string; value: number; vacant?: number; [k: string]: unknown }
@@ -58,6 +59,7 @@ export default function DashboardPage() {
               {tiles.map((tile) => <KpiTile key={tile.key} tile={tile} />)}
             </div>
           )}
+          <DashboardAppraisalPanel />
           {cadre && <CadreCard chart={cadre} />}
           {others.length > 0 && (
             <div className="grid grid-2">

@@ -43,6 +43,12 @@ public enum Permission {
     PER_MANAGE("Configure evaluation models and periods"),
     PER_EVALUATE("Evaluate assigned employees"),
 
+    APR_MANAGE("Administer performance appraisals (start cycles, assign officers, decide special cases, reopening and appeals)"),
+    APR_POLICY_APPROVE("Approve appraisal policy changes (weighting and rating scale)"),
+    APR_OVERVIEW("View the aggregated performance appraisal dashboard"),
+    APR_REPORT("Drill down into and export appraisal results (restricted)"),
+    APR_ADMIN("Technical administration of appraisal (HRMS synchronization); no appraisal content"),
+
     TRN_VIEW("View training"),
     TRN_MANAGE("Manage training programmes and nominations"),
 

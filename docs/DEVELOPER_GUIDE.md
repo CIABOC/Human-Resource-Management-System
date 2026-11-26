@@ -40,6 +40,12 @@ Version ranges are reserved per module to avoid clashes:
 | V20–V29 | Payroll and Benefits |
 | V30–V39 | Recruitment, Performance, Training |
 | V40–V49 | Extended scope (transfers, promotions, retirement, certificates) |
+| V100–V109 | Performance appraisal (`appraisal` package, wireframes 1-15; reuses `per_period`) |
+
+Performance appraisal: supervisor and reviewing officer come from the approved structure (`AppraisalAccess.resolve`);
+scores are always system-calculated (`AppraisalService.recompute`). Permissions `APR_MANAGE`, `APR_POLICY_APPROVE`,
+`APR_OVERVIEW` (Management/DG dashboard), `APR_REPORT` (drill-down/export), `APR_ADMIN` (HRMS sync). Demo appraisals are
+created by `AppraisalDemoSeeder` (demo users only) through the real service layer.
 
 Development-only sample data goes in `src/main/resources/db/demo/R__demo_<module>.sql` (repeatable, **idempotent**:
 `ON CONFLICT DO NOTHING` / `WHERE NOT EXISTS`). Never change a migration that has been applied; add a new one.

@@ -1,0 +1,122 @@
+/* Performance appraisal screens (wireframes "Performance appraisal" 1-15): navy/gold theme tokens from theme.css. */
+
+.apr-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 22px; align-items: start; }
+.apr-main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+
+.apr-subnav { position: sticky; top: 76px; display: flex; flex-direction: column; gap: 14px; padding: 14px 10px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
+.apr-subnav-title { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); font-weight: 700; padding: 0 10px 4px; }
+.apr-subnav-link { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border-radius: 8px;
+  color: var(--text-muted); font-size: 13.5px; text-decoration: none; border-left: 3px solid transparent; }
+.apr-subnav-link:hover { background: var(--navy-50); color: var(--navy-800); }
+.apr-subnav-link.active { background: var(--gold-50); color: var(--navy-800); font-weight: 600; border-left-color: var(--gold-500); }
+.apr-count { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--gold-500); color: var(--navy-900);
+  font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+
+@media (max-width: 960px) {
+  .apr-layout { grid-template-columns: minmax(0, 1fr); }
+  .apr-subnav { position: static; flex-direction: row; overflow-x: auto; gap: 18px; padding: 10px; }
+  .apr-subnav-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .apr-subnav-title { padding: 0 6px 0 0; }
+  .apr-subnav-link { white-space: nowrap; border-left: 0; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; }
+  .apr-subnav-link.active { border-bottom-color: var(--gold-500); }
+}
+
+/* chips and the status trail */
+.apr-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.apr-chip { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12px; font-weight: 500;
+  border: 1px solid var(--gold-400); background: var(--gold-50); color: var(--gold-700); white-space: nowrap; }
+.apr-chip.active { background: var(--gold-500); border-color: var(--gold-500); color: var(--navy-900); font-weight: 700; }
+.apr-chip.done { background: var(--surface); color: var(--navy-700); border-color: var(--border-strong); }
+.apr-chip.tone-danger { border-color: #e4a7a2; background: var(--danger-bg); color: var(--danger); }
+.apr-chip.tone-success { border-color: #9fd2b6; background: var(--success-bg); color: var(--success); }
+.apr-chip.tone-info { border-color: #a9c3ec; background: var(--info-bg); color: var(--info); }
+.apr-chip.tone-muted { border-color: var(--border-strong); background: var(--surface-2); color: var(--text-muted); }
+.apr-trail { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; }
+.apr-trail-label { color: var(--text-muted); margin-right: 2px; }
+.apr-trail-step { display: inline-flex; align-items: center; gap: 6px; }
+.apr-trail-sep { color: var(--text-faint); }
+
+/* summary cards (gold top rule, as in the wireframes) */
+.apr-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.apr-card { background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--gold-500); border-radius: 4px 4px var(--radius) var(--radius);
+  padding: 14px 16px; box-shadow: var(--shadow-sm); min-width: 0; }
+.apr-card-label { font-size: 12.5px; color: var(--text-muted); }
+.apr-card-value { font-family: var(--font-display); font-size: 26px; font-weight: 600; color: var(--navy-800); margin-top: 4px; line-height: 1.15;
+  overflow-wrap: anywhere; }
+.apr-card-hint { font-size: 11.5px; color: var(--text-faint); margin-top: 4px; }
+@media (max-width: 1100px) { .apr-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .apr-cards { grid-template-columns: minmax(0, 1fr); } }
+
+/* tables with navy headers and striped gold rows */
+.apr-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.apr-table th { background: var(--navy-800); color: #fff; font-weight: 600; text-align: left; padding: 9px 12px; white-space: nowrap; }
+.apr-table th:first-child { border-top-left-radius: 6px; }
+.apr-table th:last-child { border-top-right-radius: 6px; }
+.apr-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.apr-table tbody tr:nth-child(odd) td { background: var(--gold-50); }
+.apr-table td.num, .apr-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.apr-table .input, .apr-table .select { min-width: 90px; }
+.apr-table-wrap { overflow-x: auto; }
+.apr-table tfoot td { font-weight: 600; background: var(--surface-2); }
+
+/* progress bars */
+.apr-bar { display: inline-block; width: 100%; min-width: 70px; max-width: 160px; height: 7px; border-radius: 4px; background: var(--navy-100); overflow: hidden; vertical-align: middle; }
+.apr-bar > span { display: block; height: 100%; border-radius: 4px; background: var(--gold-500); }
+.apr-bar.tone-navy > span { background: var(--navy-600); }
+
+/* notes and panels */
+.apr-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 18px; }
+.apr-panel h4 { margin: 0 0 6px; color: var(--navy-700); font-size: 14px; font-family: var(--font-ui); font-weight: 700; }
+.apr-panel p { margin: 0; font-size: 12.5px; color: var(--text-muted); line-height: 1.55; }
+.apr-note { border: 1px solid #a9c3ec; background: var(--info-bg); color: var(--navy-700); border-radius: var(--radius); padding: 10px 14px; font-size: 12.5px; }
+.apr-note-danger { border-color: #e4a7a2; background: var(--danger-bg); color: var(--danger); }
+.apr-note-success { border-color: #9fd2b6; background: var(--success-bg); color: var(--success); }
+
+/* trend chart */
+.apr-trend { display: flex; align-items: flex-end; gap: 18px; height: 150px; padding: 8px 4px 0; }
+.apr-trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; height: 100%; min-width: 0; }
+.apr-trend-bar { width: 100%; max-width: 44px; border-radius: 4px 4px 0 0; background: var(--navy-600); }
+.apr-trend-col b { font-size: 12px; color: var(--navy-800); font-variant-numeric: tabular-nums; }
+.apr-trend-col span { font-size: 11px; color: var(--text-muted); text-align: center; overflow-wrap: anywhere; }
+
+/* behavioural sliders */
+.apr-criteria { display: flex; flex-direction: column; }
+.apr-criterion { display: grid; grid-template-columns: minmax(150px, 1.1fr) minmax(220px, 1.5fr) 50px minmax(160px, 1.2fr); gap: 12px; align-items: center;
+  padding: 10px 0; border-bottom: 1px solid var(--border); }
+.apr-criterion:last-child { border-bottom: 0; }
+.apr-criterion-head { font-size: 12px; color: var(--text-muted); font-weight: 600; padding-bottom: 6px; }
+.apr-criterion .name { font-weight: 600; font-size: 13.5px; color: var(--navy-800); }
+.apr-criterion .desc { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.apr-scale { display: flex; flex-direction: column; gap: 3px; }
+.apr-scale input[type=range] { width: 100%; accent-color: var(--gold-500); }
+.apr-scale-stops { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--text-faint); }
+.apr-criterion .na { display: flex; justify-content: center; }
+.apr-criterion.is-na .apr-scale { opacity: .35; }
+@media (max-width: 860px) {
+  .apr-criterion { grid-template-columns: 1fr; gap: 6px; }
+  .apr-criterion-head { display: none; }
+  .apr-criterion .na { justify-content: flex-start; }
+}
+
+/* spread mini-chart */
+.apr-spread { display: flex; height: 12px; width: 100%; min-width: 90px; border-radius: 3px; overflow: hidden; background: var(--navy-50); }
+.apr-spread > span { display: block; height: 100%; }
+.apr-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--text-muted); }
+.apr-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+.apr-locked { display: inline-flex; align-items: center; gap: 6px; }
+.apr-empty-dashed { border: 1px dashed var(--border-strong); border-radius: var(--radius); padding: 18px; text-align: center; color: var(--text-muted); font-size: 13px; }
+.apr-split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 1000px) { .apr-split { grid-template-columns: minmax(0, 1fr); } }
+.apr-kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }
+.apr-kv dt { color: var(--text-muted); }
+.apr-kv dd { margin: 0; color: var(--navy-800); font-weight: 500; }
+
+/* main dashboard: DG appraisal section */
+.apr-dash-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.apr-funnel { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.apr-funnel > div { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; min-width: 0; }
+.apr-funnel b { display: block; font-family: var(--font-display); font-size: 22px; color: var(--navy-800); }
+.apr-funnel span { font-size: 11.5px; color: var(--text-muted); }
+@media (max-width: 900px) { .apr-funnel { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
